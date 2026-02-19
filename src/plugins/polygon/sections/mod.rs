@@ -1,6 +1,5 @@
 pub mod collision_torture;
 pub mod common;
-pub mod control_hub;
 pub mod cover_peek;
 pub mod damage_team_sandbox;
 pub mod hitscan_range;

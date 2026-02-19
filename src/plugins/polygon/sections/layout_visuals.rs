@@ -5,7 +5,7 @@ use crate::plugins::polygon::{
     layout::{SectionKind, SectionLayout},
 };
 
-use super::common::spawn_visual_block;
+use super::common::{section_center, section_span, spawn_visual_block};
 
 pub fn spawn_section_layout_visuals(
     commands: &mut Commands,
@@ -71,6 +71,10 @@ pub fn spawn_section_layout_visuals(
     });
 
     for (col, row, section) in layout.iter() {
+        if section == SectionKind::ControlHub {
+            continue;
+        }
+
         let center = config.module_center(col, row);
         let material = match section {
             SectionKind::Reserved => reserved_mat.clone(),
@@ -91,6 +95,19 @@ pub fn spawn_section_layout_visuals(
             &material,
             Vec3::new(center.x, 0.012, center.z),
             Vec3::new(config.module_size - 0.35, 0.02, config.module_size - 0.35),
+        );
+    }
+
+    if let Some(center_bounds) = layout.bounds_of(SectionKind::ControlHub) {
+        let center = section_center(config, center_bounds);
+        let span = section_span(config, center_bounds);
+
+        spawn_visual_block(
+            commands,
+            meshes,
+            &control_mat,
+            Vec3::new(center.x, 0.012, center.z),
+            Vec3::new((span.x - 0.35).max(0.2), 0.02, (span.y - 0.35).max(0.2)),
         );
     }
 

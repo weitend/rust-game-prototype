@@ -100,7 +100,7 @@ pub fn section_center(config: &PolygonConfig, bounds: SectionBounds) -> Vec3 {
 
 pub fn section_span(config: &PolygonConfig, bounds: SectionBounds) -> Vec2 {
     Vec2::new(
-        bounds.width_modules() as f32 * config.module_size,
-        bounds.height_modules() as f32 * config.module_size,
+        config.span_for_modules(bounds.width_modules()),
+        config.span_for_modules(bounds.height_modules()),
     )
 }
