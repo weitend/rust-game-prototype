@@ -5,5 +5,5 @@ pub mod impact_mark_lifetime;
 pub mod lock_cursor;
 pub mod player_move;
 pub mod player_rotate;
-pub mod shot_tracer;
 pub mod setup;
+pub mod shot_tracer;

@@ -4,6 +4,6 @@ pub mod follow_camera;
 pub mod impact_mark_lifetime;
 pub mod obstacle;
 pub mod player;
-pub mod shot_tracer;
 pub mod shoot_origin;
+pub mod shot_tracer;
 pub mod weapon;

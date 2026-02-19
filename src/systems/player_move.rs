@@ -16,10 +16,10 @@ pub fn player_move_system(
     >,
     time: Res<Time>,
 ) {
-    const SPEED: f32 = 5.0;
-    const GRAVITY: f32 = 18.0;
-    const JUMP_SPEED: f32 = 6.2;
-    const MAX_FALL_SPEED: f32 = 30.0;
+    const SPEED: f32 = 8.0;
+    const GRAVITY: f32 = 13.0;
+    const JUMP_SPEED: f32 = 9.2;
+    const MAX_FALL_SPEED: f32 = 35.0;
 
     let mut direction = Vec3::ZERO;
     let (player_tf, mut controller, mut state, output) =

@@ -8,8 +8,8 @@ use crate::{
         impact_mark_lifetime::ImpactMarkLifetime,
         obstacle::Obstacle,
         player::Player,
-        shot_tracer::{ShotTracer, ShotTracerLifetime},
         shoot_origin::ShootOrigin,
+        shot_tracer::{ShotTracer, ShotTracerLifetime},
         weapon::HitscanWeapon,
     },
     resources::{impact_assets::ImpactAssets, tracer_assets::TracerAssets},
@@ -37,8 +37,7 @@ pub fn fire_system(
     tracer_assets: Res<TracerAssets>,
     time: Res<Time>,
 ) {
-    let Ok((player_entity, player_tf, shoot_origin, mut fire_control, weapon)) =
-        query.single_mut()
+    let Ok((player_entity, player_tf, shoot_origin, mut fire_control, weapon)) = query.single_mut()
     else {
         return;
     };
