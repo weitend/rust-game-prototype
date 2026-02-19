@@ -1,6 +1,6 @@
 use bevy::{camera::primitives::MeshAabb, prelude::*};
 
-pub fn compute_muzzle(mesh: &Mesh, bullet_radius: f32) -> Option<Vec3> {
+pub fn compute_muzzle(mesh: &Mesh, forward_padding: f32) -> Option<Vec3> {
     let aabb = mesh.compute_aabb()?;
 
     let center: Vec3 = aabb.center.into();
@@ -11,7 +11,7 @@ pub fn compute_muzzle(mesh: &Mesh, bullet_radius: f32) -> Option<Vec3> {
 
     let gap: f32 = 0.02;
 
-    let muzzle_offset = center + forward_local * (front_extent + bullet_radius + gap);
+    let muzzle_offset = center + forward_local * (front_extent + forward_padding + gap);
 
     return Some(muzzle_offset);
 }

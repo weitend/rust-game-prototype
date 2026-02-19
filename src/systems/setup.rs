@@ -9,13 +9,15 @@ use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
+        combat::{Health, Team},
         fire_control::FireControl,
         follow_camera::FollowCamera,
         obstacle::Obstacle,
         player::{Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
+        weapon::HitscanWeapon,
     },
-    resources::bullet_assets::BulletAssets,
+    resources::{impact_assets::ImpactAssets, tracer_assets::TracerAssets},
     utils::{collision_groups::player_collision_groups, muzzle::compute_muzzle},
 };
 
@@ -25,7 +27,7 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let bullet_radius: f32 = 0.015;
+    let muzzle_padding: f32 = 0.015;
 
     // Platform
     let platform_size = (80.0, 0.2, 80.0);
@@ -109,7 +111,7 @@ pub fn setup(
     let mesh = meshes.get(&mesh_handle);
 
     let muzzle_offset: Vec3 = mesh
-        .and_then(|m| compute_muzzle(m, bullet_radius))
+        .and_then(|m| compute_muzzle(m, muzzle_padding))
         .unwrap_or(Vec3::ZERO);
 
     let sps: f32 = 5.0;
@@ -119,6 +121,8 @@ pub fn setup(
         MeshMaterial3d(materials.add(Color::srgb_u8(10, 144, 255))),
         Transform::from_xyz(0.0, 0.9, 0.0),
         Player,
+        Team::Player,
+        Health::new(100.0),
         PlayerControllerState::default(),
         ShootOrigin { muzzle_offset },
         player_collision_groups(),
@@ -138,7 +142,10 @@ pub fn setup(
         },
         FireControl {
             cooldown: Timer::from_seconds(1.0 / sps, TimerMode::Repeating),
-            shots_per_second: sps,
+        },
+        HitscanWeapon {
+            damage: 25.0,
+            range: 45.0,
         },
     ));
 
@@ -165,16 +172,22 @@ pub fn setup(
         FollowCamera,
     ));
 
-    // Bullet config startup
+    // Impact mark assets startup
     let impact_radius = 0.06;
-    commands.insert_resource(BulletAssets {
-        radius: bullet_radius,
-        speed: 2.0,
-        bullet_lifetime_secs: 3.0,
-        mesh: meshes.add(Sphere::new(bullet_radius)),
-        material: materials.add(Color::srgb(1.0, 0.0, 0.0)),
-        impact_radius,
-        impact_mesh: meshes.add(Sphere::new(impact_radius)),
-        impact_material: materials.add(Color::srgb_u8(30, 30, 30)),
-    })
+    commands.insert_resource(ImpactAssets {
+        radius: impact_radius,
+        mesh: meshes.add(Sphere::new(impact_radius)),
+        material: materials.add(Color::srgb_u8(30, 30, 30)),
+        lifetime_secs: 30.0,
+    });
+
+    commands.insert_resource(TracerAssets {
+        mesh: meshes.add(Sphere::new(0.03)),
+        material: materials.add(StandardMaterial {
+            base_color: Color::srgb_u8(255, 240, 120),
+            unlit: true,
+            ..default()
+        }),
+        speed: 65.0,
+    });
 }

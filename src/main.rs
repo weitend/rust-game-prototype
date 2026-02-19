@@ -2,17 +2,17 @@ use bevy::prelude::*;
 use bevy_rapier3d::plugin::NoUserData;
 use bevy_rapier3d::plugin::PhysicsSet;
 use bevy_rapier3d::plugin::RapierPhysicsPlugin;
-use systems::bullet_hit::*;
-use systems::bullet_lifetime::*;
 use systems::camera_move::*;
+use systems::combat::*;
 use systems::fire::*;
 use systems::impact_mark_lifetime::*;
 use systems::lock_cursor::*;
 use systems::player_move::*;
 use systems::player_rotate::*;
+use systems::shot_tracer::*;
 use systems::setup::*;
 
-use crate::resources::input_settings::InputSettings;
+use crate::resources::{combat_rules::CombatRules, input_settings::InputSettings};
 
 mod components;
 mod resources;
@@ -25,6 +25,9 @@ fn main() {
         .insert_resource(InputSettings {
             mouse_sensitivity: 0.0008,
         })
+        .insert_resource(CombatRules::default())
+        .add_message::<DamageEvent>()
+        .add_message::<DeathEvent>()
         .add_systems(Startup, (setup, lock_cursor_system))
         .add_systems(
             Update,
@@ -32,7 +35,9 @@ fn main() {
                 player_rotate_system,
                 player_move_system,
                 fire_system,
-                bullet_lifetyme_system,
+                update_shot_tracer_system,
+                apply_damage_system,
+                handle_death_system,
                 impact_mark_lifetime_system,
             )
                 .chain(),
@@ -41,7 +46,6 @@ fn main() {
             PostUpdate,
             (
                 camera_move_system.after(PhysicsSet::Writeback),
-                bullet_hit_system.after(PhysicsSet::Writeback),
             ),
         )
         .run();
