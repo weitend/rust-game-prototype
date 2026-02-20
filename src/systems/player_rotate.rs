@@ -7,7 +7,9 @@ pub fn player_rotate_system(
     mut motion: MessageReader<MouseMotion>,
     input_settings: Res<InputSettings>,
 ) {
-    let mut player = query.single_mut().expect("Failed to find Player Transform");
+    let Ok(mut player) = query.single_mut() else {
+        return;
+    };
 
     let mut delta_x: f32 = 0.0;
     for ev in motion.read() {

@@ -5,10 +5,10 @@ pub const GROUP_PLAYER: Group = Group::GROUP_2;
 pub const GROUP_ENEMY: Group = Group::GROUP_3;
 
 pub fn player_collision_groups() -> CollisionGroups {
-    CollisionGroups::new(GROUP_PLAYER, GROUP_WORLD | GROUP_ENEMY | GROUP_PLAYER)
+    CollisionGroups::new(GROUP_PLAYER, GROUP_WORLD | GROUP_ENEMY)
 }
 
-#[allow(dead_code)]
 pub fn enemy_collision_groups() -> CollisionGroups {
-    CollisionGroups::new(GROUP_ENEMY, GROUP_WORLD | GROUP_PLAYER | GROUP_ENEMY)
+    // Disable enemy-vs-enemy physical contacts to avoid heavy pile-up cost.
+    CollisionGroups::new(GROUP_ENEMY, GROUP_WORLD | GROUP_PLAYER)
 }

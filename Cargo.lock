@@ -1350,14 +1350,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_test_1"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_rapier3d",
-]
-
-[[package]]
 name = "bevy_text"
 version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4254,6 +4246,14 @@ dependencies = [
  "heapless",
  "num-traits",
  "smallvec",
+]
+
+[[package]]
+name = "rust_game"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_rapier3d",
 ]
 
 [[package]]

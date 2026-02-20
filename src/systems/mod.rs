@@ -1,9 +1,11 @@
 pub mod camera_move;
 pub mod combat;
+pub mod enemy_ai;
 pub mod fire;
 pub mod impact_mark_lifetime;
 pub mod lock_cursor;
 pub mod player_move;
+pub mod player_respawn;
 pub mod player_rotate;
 pub mod setup;
 pub mod shot_tracer;

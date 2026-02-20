@@ -4,14 +4,19 @@ use bevy_rapier3d::prelude::*;
 use crate::{
     components::{
         combat::{Health, Team},
+        enemy::{Enemy, EnemyAi, EnemyControllerState},
         fire_control::FireControl,
         follow_camera::FollowCamera,
-        player::{Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
         weapon::HitscanWeapon,
     },
-    resources::{impact_assets::ImpactAssets, tracer_assets::TracerAssets},
-    utils::{collision_groups::player_collision_groups, muzzle::compute_muzzle},
+    resources::{
+        impact_assets::ImpactAssets,
+        player_spawn::{PlayerRespawnState, PlayerTemplate},
+        tracer_assets::TracerAssets,
+    },
+    systems::player_respawn::spawn_player_from_template,
+    utils::{collision_groups::enemy_collision_groups, muzzle::compute_muzzle},
 };
 
 pub fn setup(
@@ -30,40 +35,71 @@ pub fn setup(
         .and_then(|m| compute_muzzle(m, muzzle_padding))
         .unwrap_or(Vec3::ZERO);
 
-    let sps: f32 = 5.0;
+    let player_template = PlayerTemplate {
+        mesh: mesh_handle.clone(),
+        material: materials.add(Color::srgb_u8(10, 144, 255)),
+        muzzle_offset,
+        spawn_translation: Vec3::new(0.0, 0.9, 6.0),
+        max_health: 100.0,
+        shots_per_second: 5.0,
+        weapon_damage: 25.0,
+        weapon_range: 45.0,
+    };
+    commands.insert_resource(player_template.clone());
+    commands.insert_resource(PlayerRespawnState::default());
+    spawn_player_from_template(&mut commands, &player_template);
 
-    commands.spawn((
-        Mesh3d(mesh_handle),
-        MeshMaterial3d(materials.add(Color::srgb_u8(10, 144, 255))),
-        Transform::from_xyz(0.0, 0.9, 6.0),
-        Player,
-        Team::Player,
-        Health::new(100.0),
-        PlayerControllerState::default(),
-        ShootOrigin { muzzle_offset },
-        player_collision_groups(),
-        Collider::cuboid(0.48, 0.5, 0.48),
-        KinematicCharacterController {
-            offset: CharacterLength::Absolute(0.003),
-            slide: true,
-            apply_impulse_to_dynamic_bodies: false,
-            filter_flags: QueryFilterFlags::EXCLUDE_DYNAMIC | QueryFilterFlags::EXCLUDE_SENSORS,
-            autostep: Some(CharacterAutostep {
-                max_height: CharacterLength::Absolute(0.25),
-                min_width: CharacterLength::Absolute(0.2),
-                include_dynamic_bodies: false,
-            }),
-            snap_to_ground: Some(CharacterLength::Absolute(0.03)),
-            ..default()
-        },
-        FireControl {
-            cooldown: Timer::from_seconds(1.0 / sps, TimerMode::Repeating),
-        },
-        HitscanWeapon {
-            damage: 25.0,
-            range: 45.0,
-        },
-    ));
+    // Enemies
+    let enemy_rows = 1;
+    let enemy_cols = 1;
+    let enemy_spacing_x = 3.6;
+    let enemy_spacing_z = 3.6;
+    let enemy_origin = Vec3::new(-7.2, 0.9, -22.0);
+    let enemy_sps = 2.0;
+    let enemy_material = materials.add(Color::srgb_u8(208, 64, 64));
+
+    for row in 0..enemy_rows {
+        for col in 0..enemy_cols {
+            let enemy_pos = enemy_origin
+                + Vec3::new(
+                    col as f32 * enemy_spacing_x,
+                    0.0,
+                    row as f32 * enemy_spacing_z,
+                );
+
+            commands.spawn((
+                Mesh3d(mesh_handle.clone()),
+                MeshMaterial3d(enemy_material.clone()),
+                Transform::from_translation(enemy_pos),
+                Enemy,
+                Team::Enemy,
+                Health::new(100.0),
+                EnemyAi::new(30.0, 16.0),
+                EnemyControllerState::default(),
+                ShootOrigin { muzzle_offset },
+                enemy_collision_groups(),
+                Collider::cuboid(0.48, 0.5, 0.48),
+                KinematicCharacterController {
+                    offset: CharacterLength::Absolute(0.003),
+                    slide: true,
+                    apply_impulse_to_dynamic_bodies: false,
+                    filter_flags: QueryFilterFlags::EXCLUDE_DYNAMIC
+                        | QueryFilterFlags::EXCLUDE_SENSORS,
+                    // Cheaper controller for crowds of enemies.
+                    autostep: None,
+                    snap_to_ground: None,
+                    ..default()
+                },
+                FireControl {
+                    cooldown: Timer::from_seconds(1.0 / enemy_sps, TimerMode::Repeating),
+                },
+                HitscanWeapon {
+                    damage: 10.0,
+                    range: 35.0,
+                },
+            ));
+        }
+    }
 
     // Camera
     commands.spawn((

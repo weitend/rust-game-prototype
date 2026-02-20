@@ -16,8 +16,12 @@ pub fn camera_move_system(
     mut cam_q: Query<&mut Transform, (With<FollowCamera>, Without<Player>)>,
     time: Res<Time>,
 ) {
-    let player = player_q.single().expect("Failed get player Transform");
-    let mut cam = cam_q.single_mut().expect("Failed get camera Transform");
+    let Ok(player) = player_q.single() else {
+        return;
+    };
+    let Ok(mut cam) = cam_q.single_mut() else {
+        return;
+    };
 
     let pivot_y = 0.5 + (player.translation.y - 0.5) * FOLLOW_Y;
     let pivot = Vec3::new(player.translation.x, pivot_y, player.translation.z);

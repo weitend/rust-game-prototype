@@ -1,6 +1,5 @@
 use bevy::prelude::Component;
 
-#[allow(dead_code)]
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Team {
     Player,

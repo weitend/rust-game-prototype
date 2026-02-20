@@ -1,4 +1,5 @@
 pub mod combat;
+pub mod enemy;
 pub mod fire_control;
 pub mod follow_camera;
 pub mod impact_mark_lifetime;

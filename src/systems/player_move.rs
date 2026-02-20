@@ -22,8 +22,9 @@ pub fn player_move_system(
     const MAX_FALL_SPEED: f32 = 35.0;
 
     let mut direction = Vec3::ZERO;
-    let (player_tf, mut controller, mut state, output) =
-        query.single_mut().expect("Player move query");
+    let Ok((player_tf, mut controller, mut state, output)) = query.single_mut() else {
+        return;
+    };
 
     let mut forward = player_tf.rotation * -Vec3::Z;
     let mut right = player_tf.rotation * Vec3::X;

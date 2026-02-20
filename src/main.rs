@@ -1,14 +1,19 @@
+use std::time::Duration;
+
 use bevy::prelude::*;
+use bevy::time::common_conditions::on_timer;
 use bevy_rapier3d::plugin::NoUserData;
 use bevy_rapier3d::plugin::PhysicsSet;
 use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use plugins::polygon::PolygonPlugin;
 use systems::camera_move::*;
 use systems::combat::*;
+use systems::enemy_ai::*;
 use systems::fire::*;
 use systems::impact_mark_lifetime::*;
 use systems::lock_cursor::*;
 use systems::player_move::*;
+use systems::player_respawn::*;
 use systems::player_rotate::*;
 use systems::setup::*;
 use systems::shot_tracer::*;
@@ -40,10 +45,15 @@ fn main() {
             (
                 player_rotate_system,
                 player_move_system,
+                enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
+                enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,
+                enemy_fire_system.run_if(on_timer(Duration::from_millis(50))),
                 update_shot_tracer_system,
                 apply_damage_system,
+                schedule_player_respawn_on_death_system,
                 handle_death_system,
+                player_respawn_tick_system,
                 impact_mark_lifetime_system,
             )
                 .chain(),

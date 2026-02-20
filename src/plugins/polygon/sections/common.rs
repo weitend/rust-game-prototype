@@ -47,7 +47,7 @@ pub fn spawn_static_block(
     ));
 
     if mark_obstacle {
-        entity.insert((Obstacle, ActiveEvents::COLLISION_EVENTS));
+        entity.insert(Obstacle);
     }
 }
 
