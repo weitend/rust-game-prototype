@@ -3,18 +3,15 @@ use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
-        combat::Health,
         enemy::{Enemy, EnemyAi, EnemyAiState, EnemyControllerState},
         fire_control::FireControl,
-        impact_mark_lifetime::ImpactMarkLifetime,
-        obstacle::Obstacle,
         player::Player,
         shoot_origin::ShootOrigin,
         shot_tracer::{ShotTracer, ShotTracerLifetime},
         weapon::HitscanWeapon,
     },
-    resources::{impact_assets::ImpactAssets, tracer_assets::TracerAssets},
-    systems::combat::DamageEvent,
+    resources::tracer_assets::TracerAssets,
+    systems::impact::ImpactEvent,
 };
 
 const ENEMY_SPEED: f32 = 10.2;
@@ -119,7 +116,7 @@ pub fn enemy_move_system(
 
 pub fn enemy_fire_system(
     mut commands: Commands,
-    mut damage_events: MessageWriter<DamageEvent>,
+    mut impact_events: MessageWriter<ImpactEvent>,
     mut enemies: Query<
         (
             Entity,
@@ -132,10 +129,7 @@ pub fn enemy_fire_system(
         With<Enemy>,
     >,
     player_q: Query<&Transform, With<Player>>,
-    obstacles: Query<(), With<Obstacle>>,
-    damageable_targets: Query<(), With<Health>>,
     rapier_context: ReadRapierContext,
-    impact_assets: Res<ImpactAssets>,
     tracer_assets: Res<TracerAssets>,
     time: Res<Time>,
 ) {
@@ -195,23 +189,12 @@ pub fn enemy_fire_system(
             continue;
         };
 
-        if damageable_targets.contains(hit_entity) {
-            damage_events.write(DamageEvent {
-                source: Some(enemy_entity),
-                target: hit_entity,
-                amount: weapon.damage,
-            });
-        }
-
-        if obstacles.contains(hit_entity) {
-            commands.spawn((
-                Mesh3d(impact_assets.mesh.clone()),
-                MeshMaterial3d(impact_assets.material.clone()),
-                Transform::from_translation(hit.point + hit.normal * (impact_assets.radius * 0.35)),
-                ImpactMarkLifetime {
-                    timer: Timer::from_seconds(impact_assets.lifetime_secs, TimerMode::Once),
-                },
-            ));
-        }
+        impact_events.write(ImpactEvent {
+            source: Some(enemy_entity),
+            target: hit_entity,
+            point: hit.point,
+            normal: hit.normal,
+            damage: weapon.damage,
+        });
     }
 }

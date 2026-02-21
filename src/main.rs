@@ -10,7 +10,7 @@ use systems::camera_move::*;
 use systems::combat::*;
 use systems::enemy_ai::*;
 use systems::fire::*;
-use systems::impact_mark_lifetime::*;
+use systems::impact::*;
 use systems::lock_cursor::*;
 use systems::player_move::*;
 use systems::player_respawn::*;
@@ -37,6 +37,7 @@ fn main() {
             mouse_sensitivity: 0.0008,
         })
         .insert_resource(CombatRules::default())
+        .add_message::<ImpactEvent>()
         .add_message::<DamageEvent>()
         .add_message::<DeathEvent>()
         .add_systems(Startup, (setup, lock_cursor_system))
@@ -49,12 +50,13 @@ fn main() {
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,
                 enemy_fire_system.run_if(on_timer(Duration::from_millis(50))),
+                process_impact_system,
+                debris_chip_lifetime_system,
                 update_shot_tracer_system,
                 apply_damage_system,
                 schedule_player_respawn_on_death_system,
                 handle_death_system,
                 player_respawn_tick_system,
-                impact_mark_lifetime_system,
             )
                 .chain(),
         )

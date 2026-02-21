@@ -110,11 +110,31 @@ pub fn setup(
 
     // Impact mark assets startup
     let impact_radius = 0.06;
+    let chip_size = 0.06;
+    let chip_mesh = meshes.add(Cuboid::new(chip_size, chip_size, chip_size));
+    let chip_fallback_material = materials.add(StandardMaterial {
+        base_color: Color::srgb_u8(74, 74, 74),
+        perceptual_roughness: 0.92,
+        ..default()
+    });
     commands.insert_resource(ImpactAssets {
         radius: impact_radius,
-        mesh: meshes.add(Sphere::new(impact_radius)),
-        material: materials.add(Color::srgb_u8(30, 30, 30)),
-        lifetime_secs: 30.0,
+        crater_size: 0.22,
+        crater_depth: 0.13,
+        min_marks_per_impact: 4,
+        max_marks_per_impact: 10,
+        damage_for_max_web: 45.0,
+        base_web_radius: 0.06,
+        max_web_radius: 0.24,
+        max_marks_per_frame: 80,
+        chip_mesh,
+        chip_fallback_material,
+        min_chips_per_impact: 2,
+        max_chips_per_impact: 5,
+        chip_size,
+        chip_speed: 4.6,
+        chip_lifetime_secs: 1.1,
+        max_chips_per_frame: 36,
     });
 
     commands.insert_resource(TracerAssets {

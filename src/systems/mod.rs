@@ -2,7 +2,7 @@ pub mod camera_move;
 pub mod combat;
 pub mod enemy_ai;
 pub mod fire;
-pub mod impact_mark_lifetime;
+pub mod impact;
 pub mod lock_cursor;
 pub mod player_move;
 pub mod player_respawn;
