@@ -12,13 +12,12 @@ use systems::enemy_ai::*;
 use systems::fire::*;
 use systems::impact::*;
 use systems::lock_cursor::*;
-use systems::player_move::*;
 use systems::player_respawn::*;
-use systems::player_rotate::*;
 use systems::setup::*;
 use systems::shot_tracer::*;
+use systems::tank_move::*;
 
-use crate::resources::{combat_rules::CombatRules, input_settings::InputSettings};
+use crate::resources::{combat_rules::CombatRules, tank_settings::TankSettings};
 
 mod components;
 mod plugins;
@@ -33,9 +32,7 @@ fn main() {
             RapierPhysicsPlugin::<NoUserData>::default(),
             PolygonPlugin,
         ))
-        .insert_resource(InputSettings {
-            mouse_sensitivity: 0.0008,
-        })
+        .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default())
         .add_message::<ImpactEvent>()
         .add_message::<DamageEvent>()
@@ -44,8 +41,7 @@ fn main() {
         .add_systems(
             Update,
             (
-                player_rotate_system,
-                player_move_system,
+                tank_hull_move_system,
                 enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,

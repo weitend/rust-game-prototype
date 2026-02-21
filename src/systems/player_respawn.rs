@@ -10,12 +10,19 @@ use crate::{
         tank::{TankBarrel, TankHull, TankMuzzle, TankTurret},
         weapon::HitscanWeapon,
     },
-    resources::player_spawn::{PlayerRespawnState, PlayerTemplate},
+    resources::{
+        player_spawn::{PlayerRespawnState, PlayerTemplate},
+        tank_settings::TankSettings,
+    },
     systems::combat::DeathEvent,
     utils::collision_groups::player_collision_groups,
 };
 
-pub fn spawn_player_from_template(commands: &mut Commands, template: &PlayerTemplate) {
+pub fn spawn_player_from_template(
+    commands: &mut Commands,
+    template: &PlayerTemplate,
+    tank_settings: &TankSettings,
+) {
     let turret_local_offset = Vec3::new(0.0, 0.46, 0.0);
     let barrel_pivot_local_offset = Vec3::new(0.0, 0.09, -0.44);
     let barrel_visual_local_offset = Vec3::new(0.0, 0.0, -0.63);
@@ -44,7 +51,7 @@ pub fn spawn_player_from_template(commands: &mut Commands, template: &PlayerTemp
             template.collider_half_extents.y,
             template.collider_half_extents.z,
         ),
-        default_player_controller(),
+        default_tank_controller(tank_settings),
         FireControl {
             cooldown: Timer::from_seconds(1.0 / template.shots_per_second, TimerMode::Repeating),
         },
@@ -54,40 +61,39 @@ pub fn spawn_player_from_template(commands: &mut Commands, template: &PlayerTemp
         },
     ));
 
-    player_entity
-        .with_children(|parent| {
-            parent
-                .spawn((
-                    Name::new("TankTurret"),
-                    Mesh3d(template.turret_mesh.clone()),
-                    MeshMaterial3d(template.turret_material.clone()),
-                    Transform::from_translation(turret_local_offset),
-                    TankTurret,
-                ))
-                .with_children(|turret| {
-                    turret
-                        .spawn((
-                            Name::new("TankBarrelPivot"),
-                            Transform::from_translation(barrel_pivot_local_offset),
+    player_entity.with_children(|parent| {
+        parent
+            .spawn((
+                Name::new("TankTurret"),
+                Mesh3d(template.turret_mesh.clone()),
+                MeshMaterial3d(template.turret_material.clone()),
+                Transform::from_translation(turret_local_offset),
+                TankTurret,
+            ))
+            .with_children(|turret| {
+                turret
+                    .spawn((
+                        Name::new("TankBarrelPivot"),
+                        Transform::from_translation(barrel_pivot_local_offset),
+                        Visibility::default(),
+                        TankBarrel,
+                    ))
+                    .with_children(|barrel| {
+                        barrel.spawn((
+                            Name::new("TankBarrel"),
+                            Mesh3d(template.barrel_mesh.clone()),
+                            MeshMaterial3d(template.barrel_material.clone()),
+                            Transform::from_translation(barrel_visual_local_offset),
+                        ));
+                        barrel.spawn((
+                            Name::new("TankMuzzle"),
+                            Transform::from_translation(muzzle_local_offset),
                             Visibility::default(),
-                            TankBarrel,
-                        ))
-                        .with_children(|barrel| {
-                            barrel.spawn((
-                                Name::new("TankBarrel"),
-                                Mesh3d(template.barrel_mesh.clone()),
-                                MeshMaterial3d(template.barrel_material.clone()),
-                                Transform::from_translation(barrel_visual_local_offset),
-                            ));
-                            barrel.spawn((
-                                Name::new("TankMuzzle"),
-                                Transform::from_translation(muzzle_local_offset),
-                                Visibility::default(),
-                                TankMuzzle,
-                            ));
-                        });
-                });
-        });
+                            TankMuzzle,
+                        ));
+                    });
+            });
+    });
 }
 
 pub fn schedule_player_respawn_on_death_system(
@@ -109,6 +115,7 @@ pub fn player_respawn_tick_system(
     time: Res<Time>,
     mut respawn: ResMut<PlayerRespawnState>,
     template: Res<PlayerTemplate>,
+    tank_settings: Res<TankSettings>,
     player_query: Query<(), With<Player>>,
 ) {
     if player_query.single().is_ok() {
@@ -125,22 +132,22 @@ pub fn player_respawn_tick_system(
         return;
     }
 
-    spawn_player_from_template(&mut commands, &template);
+    spawn_player_from_template(&mut commands, &template, &tank_settings);
     respawn.pending = false;
 }
 
-fn default_player_controller() -> KinematicCharacterController {
+fn default_tank_controller(settings: &TankSettings) -> KinematicCharacterController {
     KinematicCharacterController {
-        offset: CharacterLength::Absolute(0.003),
+        offset: CharacterLength::Absolute(settings.controller_offset),
         slide: true,
         apply_impulse_to_dynamic_bodies: false,
         filter_flags: QueryFilterFlags::EXCLUDE_DYNAMIC | QueryFilterFlags::EXCLUDE_SENSORS,
         autostep: Some(CharacterAutostep {
-            max_height: CharacterLength::Absolute(0.25),
-            min_width: CharacterLength::Absolute(0.2),
+            max_height: CharacterLength::Absolute(settings.autostep_height),
+            min_width: CharacterLength::Absolute(settings.autostep_min_width),
             include_dynamic_bodies: false,
         }),
-        snap_to_ground: Some(CharacterLength::Absolute(0.03)),
+        snap_to_ground: Some(CharacterLength::Absolute(settings.snap_to_ground)),
         ..default()
     }
 }

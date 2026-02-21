@@ -13,6 +13,7 @@ use crate::{
     resources::{
         impact_assets::ImpactAssets,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
+        tank_settings::TankSettings,
         tracer_assets::TracerAssets,
     },
     systems::player_respawn::spawn_player_from_template,
@@ -23,6 +24,7 @@ pub fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    tank_settings: Res<TankSettings>,
 ) {
     let muzzle_padding: f32 = 0.015;
 
@@ -49,7 +51,7 @@ pub fn setup(
     };
     commands.insert_resource(player_template.clone());
     commands.insert_resource(PlayerRespawnState::default());
-    spawn_player_from_template(&mut commands, &player_template);
+    spawn_player_from_template(&mut commands, &player_template, &tank_settings);
 
     // Enemies
     let enemy_rows = 1;
