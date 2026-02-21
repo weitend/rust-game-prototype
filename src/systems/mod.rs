@@ -7,4 +7,5 @@ pub mod lock_cursor;
 pub mod player_respawn;
 pub mod setup;
 pub mod shot_tracer;
+pub mod tank_aim;
 pub mod tank_move;

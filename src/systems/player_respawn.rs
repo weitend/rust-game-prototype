@@ -7,7 +7,7 @@ use crate::{
         fire_control::FireControl,
         player::{LocalPlayer, Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
-        tank::{TankBarrel, TankHull, TankMuzzle, TankTurret},
+        tank::{TankBarrel, TankHull, TankMuzzle, TankTurret, TankTurretState},
         weapon::HitscanWeapon,
     },
     resources::{
@@ -69,6 +69,7 @@ pub fn spawn_player_from_template(
                 MeshMaterial3d(template.turret_material.clone()),
                 Transform::from_translation(turret_local_offset),
                 TankTurret,
+                TankTurretState::default(),
             ))
             .with_children(|turret| {
                 turret

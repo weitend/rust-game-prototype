@@ -6,6 +6,11 @@ pub struct TankHull;
 #[derive(Component)]
 pub struct TankTurret;
 
+#[derive(Component, Default)]
+pub struct TankTurretState {
+    pub yaw: f32,
+}
+
 #[derive(Component)]
 pub struct TankBarrel;
 
