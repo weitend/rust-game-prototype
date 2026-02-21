@@ -67,7 +67,7 @@ pub fn handle_death_system(
         let _ = event.killer;
 
         if health_query.get(event.victim).is_ok() {
-            commands.entity(event.victim).despawn();
+            commands.entity(event.victim).despawn_children().despawn();
         }
     }
 }

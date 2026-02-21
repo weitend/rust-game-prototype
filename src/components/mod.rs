@@ -9,4 +9,5 @@ pub mod obstacle;
 pub mod player;
 pub mod shoot_origin;
 pub mod shot_tracer;
+pub mod tank;
 pub mod weapon;

@@ -4,7 +4,12 @@ use bevy::prelude::*;
 pub struct PlayerTemplate {
     pub mesh: Handle<Mesh>,
     pub material: Handle<StandardMaterial>,
+    pub turret_mesh: Handle<Mesh>,
+    pub turret_material: Handle<StandardMaterial>,
+    pub barrel_mesh: Handle<Mesh>,
+    pub barrel_material: Handle<StandardMaterial>,
     pub muzzle_offset: Vec3,
+    pub collider_half_extents: Vec3,
     pub spawn_translation: Vec3,
     pub max_health: f32,
     pub shots_per_second: f32,

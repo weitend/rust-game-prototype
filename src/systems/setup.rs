@@ -27,18 +27,20 @@ pub fn setup(
     let muzzle_padding: f32 = 0.015;
 
     // Player
-    let cube = (1.0, 1.0, 1.0);
-    let mesh_handle = meshes.add(Cuboid::new(cube.0, cube.1, cube.2));
-    let mesh = meshes.get(&mesh_handle);
-
-    let muzzle_offset: Vec3 = mesh
-        .and_then(|m| compute_muzzle(m, muzzle_padding))
-        .unwrap_or(Vec3::ZERO);
+    let player_hull_mesh = meshes.add(Cuboid::new(1.6, 0.74, 2.2));
+    let player_turret_mesh = meshes.add(Cuboid::new(1.05, 0.34, 1.05));
+    let player_barrel_mesh = meshes.add(Cuboid::new(0.18, 0.18, 1.26));
+    let player_muzzle_offset = Vec3::new(0.0, 0.55, -1.70);
 
     let player_template = PlayerTemplate {
-        mesh: mesh_handle.clone(),
+        mesh: player_hull_mesh,
         material: materials.add(Color::srgb_u8(10, 144, 255)),
-        muzzle_offset,
+        turret_mesh: player_turret_mesh,
+        turret_material: materials.add(Color::srgb_u8(20, 167, 255)),
+        barrel_mesh: player_barrel_mesh,
+        barrel_material: materials.add(Color::srgb_u8(58, 78, 104)),
+        muzzle_offset: player_muzzle_offset,
+        collider_half_extents: Vec3::new(0.80, 0.37, 1.10),
         spawn_translation: Vec3::new(0.0, 0.9, 6.0),
         max_health: 100.0,
         shots_per_second: 5.0,
@@ -57,6 +59,11 @@ pub fn setup(
     let enemy_origin = Vec3::new(-7.2, 0.9, -22.0);
     let enemy_sps = 2.0;
     let enemy_material = materials.add(Color::srgb_u8(208, 64, 64));
+    let enemy_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+    let enemy_muzzle_offset = meshes
+        .get(&enemy_mesh)
+        .and_then(|mesh| compute_muzzle(mesh, muzzle_padding))
+        .unwrap_or(Vec3::ZERO);
 
     for row in 0..enemy_rows {
         for col in 0..enemy_cols {
@@ -68,7 +75,7 @@ pub fn setup(
                 );
 
             commands.spawn((
-                Mesh3d(mesh_handle.clone()),
+                Mesh3d(enemy_mesh.clone()),
                 MeshMaterial3d(enemy_material.clone()),
                 Transform::from_translation(enemy_pos),
                 Enemy,
@@ -76,7 +83,9 @@ pub fn setup(
                 Health::new(100.0),
                 EnemyAi::new(30.0, 16.0),
                 EnemyControllerState::default(),
-                ShootOrigin { muzzle_offset },
+                ShootOrigin {
+                    muzzle_offset: enemy_muzzle_offset,
+                },
                 enemy_collision_groups(),
                 Collider::cuboid(0.48, 0.5, 0.48),
                 KinematicCharacterController {
