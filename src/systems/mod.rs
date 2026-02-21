@@ -1,3 +1,4 @@
+pub mod aim_marker;
 pub mod camera_move;
 pub mod combat;
 pub mod enemy_ai;

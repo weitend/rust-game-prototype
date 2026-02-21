@@ -6,6 +6,7 @@ use bevy_rapier3d::plugin::NoUserData;
 use bevy_rapier3d::plugin::PhysicsSet;
 use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use plugins::polygon::PolygonPlugin;
+use systems::aim_marker::*;
 use systems::camera_move::*;
 use systems::combat::*;
 use systems::enemy_ai::*;
@@ -18,7 +19,9 @@ use systems::shot_tracer::*;
 use systems::tank_aim::*;
 use systems::tank_move::*;
 
-use crate::resources::{combat_rules::CombatRules, tank_settings::TankSettings};
+use crate::resources::{
+    aim_settings::AimSettings, combat_rules::CombatRules, tank_settings::TankSettings,
+};
 
 mod components;
 mod plugins;
@@ -33,6 +36,7 @@ fn main() {
             RapierPhysicsPlugin::<NoUserData>::default(),
             PolygonPlugin,
         ))
+        .insert_resource(AimSettings::default())
         .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default())
         .add_message::<ImpactEvent>()
@@ -45,6 +49,7 @@ fn main() {
                 tank_hull_move_system,
                 tank_turret_yaw_system,
                 tank_barrel_pitch_system,
+                update_aim_marker_system,
                 enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,

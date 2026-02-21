@@ -1,3 +1,4 @@
+pub mod aim_marker;
 pub mod combat;
 pub mod debris_chip;
 pub mod destructible_mesh;

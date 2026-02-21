@@ -46,8 +46,8 @@ fn normalize_angle(angle: f32) -> f32 {
 }
 
 fn yaw_from_rotation(rotation: Quat) -> f32 {
-    let forward = rotation * -Vec3::Z;
-    forward.x.atan2(-forward.z)
+    let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+    normalize_angle(yaw)
 }
 
 pub fn tank_barrel_pitch_system(

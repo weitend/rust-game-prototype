@@ -1,8 +1,10 @@
+use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
+        aim_marker::AimMarker,
         combat::{Health, Team},
         enemy::{Enemy, EnemyAi, EnemyControllerState},
         fire_control::FireControl,
@@ -11,6 +13,7 @@ use crate::{
         weapon::HitscanWeapon,
     },
     resources::{
+        aim_settings::{AIM_MARKER_RENDER_LAYER, AimSettings},
         impact_assets::ImpactAssets,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
         tank_settings::TankSettings,
@@ -24,6 +27,7 @@ pub fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    aim_settings: Res<AimSettings>,
     tank_settings: Res<TankSettings>,
 ) {
     let muzzle_padding: f32 = 0.015;
@@ -117,6 +121,28 @@ pub fn setup(
         Camera3d::default(),
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
         FollowCamera,
+        RenderLayers::from_layers(&[0, AIM_MARKER_RENDER_LAYER]),
+    ));
+
+    let aim_marker_mesh = meshes.add(Cylinder::new(
+        aim_settings.marker_radius,
+        aim_settings.marker_height,
+    ));
+    let aim_marker_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.91, 0.22, 0.25, 0.48),
+        emissive: Color::srgb(0.55, 0.10, 0.12).into(),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+    commands.spawn((
+        Name::new("AimMarker"),
+        Mesh3d(aim_marker_mesh),
+        MeshMaterial3d(aim_marker_material),
+        Transform::from_xyz(0.0, -1000.0, 0.0),
+        Visibility::Hidden,
+        AimMarker,
+        RenderLayers::layer(AIM_MARKER_RENDER_LAYER),
     ));
 
     // Impact mark assets startup
