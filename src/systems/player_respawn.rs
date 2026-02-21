@@ -7,7 +7,7 @@ use crate::{
         fire_control::FireControl,
         player::{LocalPlayer, Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
-        tank::{TankBarrel, TankHull, TankMuzzle, TankTurret, TankTurretState},
+        tank::{TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankTurret, TankTurretState},
         weapon::HitscanWeapon,
     },
     resources::{
@@ -78,6 +78,7 @@ pub fn spawn_player_from_template(
                         Transform::from_translation(barrel_pivot_local_offset),
                         Visibility::default(),
                         TankBarrel,
+                        TankBarrelState::default(),
                     ))
                     .with_children(|barrel| {
                         barrel.spawn((

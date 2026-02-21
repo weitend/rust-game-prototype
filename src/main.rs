@@ -44,6 +44,7 @@ fn main() {
             (
                 tank_hull_move_system,
                 tank_turret_yaw_system,
+                tank_barrel_pitch_system,
                 enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,

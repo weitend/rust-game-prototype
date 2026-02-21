@@ -5,8 +5,8 @@ use crate::{
     components::{
         fire_control::FireControl,
         player::Player,
-        shoot_origin::ShootOrigin,
         shot_tracer::{ShotTracer, ShotTracerLifetime},
+        tank::TankMuzzle,
         weapon::HitscanWeapon,
     },
     resources::tracer_assets::TracerAssets,
@@ -17,22 +17,13 @@ pub fn fire_system(
     mut commands: Commands,
     mouse: Res<ButtonInput<MouseButton>>,
     mut impact_events: MessageWriter<ImpactEvent>,
-    mut query: Query<
-        (
-            Entity,
-            &Transform,
-            &ShootOrigin,
-            &mut FireControl,
-            &HitscanWeapon,
-        ),
-        With<Player>,
-    >,
+    mut player_q: Query<(Entity, &mut FireControl, &HitscanWeapon), With<Player>>,
+    muzzle_q: Query<&GlobalTransform, With<TankMuzzle>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
     time: Res<Time>,
 ) {
-    let Ok((player_entity, player_tf, shoot_origin, mut fire_control, weapon)) = query.single_mut()
-    else {
+    let Ok((player_entity, mut fire_control, weapon)) = player_q.single_mut() else {
         return;
     };
 
@@ -50,9 +41,13 @@ pub fn fire_system(
     let Ok(rapier_context) = rapier_context.single() else {
         return;
     };
+    let Ok(muzzle_tf) = muzzle_q.single() else {
+        return;
+    };
 
-    let ray_origin = player_tf.translation + player_tf.rotation * shoot_origin.muzzle_offset;
-    let ray_dir = (player_tf.rotation * -Vec3::Z).normalize_or_zero();
+    let ray_origin = muzzle_tf.translation();
+    let (_, muzzle_rotation, _) = muzzle_tf.to_scale_rotation_translation();
+    let ray_dir = (muzzle_rotation * -Vec3::Z).normalize_or_zero();
 
     if ray_dir == Vec3::ZERO {
         return;

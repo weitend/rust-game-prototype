@@ -14,5 +14,10 @@ pub struct TankTurretState {
 #[derive(Component)]
 pub struct TankBarrel;
 
+#[derive(Component, Default)]
+pub struct TankBarrelState {
+    pub pitch: f32,
+}
+
 #[derive(Component)]
 pub struct TankMuzzle;
