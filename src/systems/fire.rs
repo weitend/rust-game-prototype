@@ -4,13 +4,14 @@ use bevy_rapier3d::prelude::*;
 use crate::{
     components::{
         fire_control::FireControl,
-        player::Player,
+        intent::PlayerIntent,
+        player::{LocalPlayer, Player},
         shot_tracer::{ShotTracer, ShotTracerLifetime},
         tank::TankMuzzle,
         weapon::HitscanWeapon,
     },
     resources::{
-        aim_settings::{AimModeState, AimSettings},
+        aim_settings::AimSettings,
         tracer_assets::TracerAssets,
     },
     systems::impact::ImpactEvent,
@@ -19,28 +20,29 @@ use crate::{
 
 pub fn fire_system(
     mut commands: Commands,
-    mouse: Res<ButtonInput<MouseButton>>,
     mut impact_events: MessageWriter<ImpactEvent>,
-    mut player_q: Query<(Entity, &mut FireControl, &HitscanWeapon), With<Player>>,
+    mut player_q: Query<
+        (Entity, &mut FireControl, &HitscanWeapon, &PlayerIntent),
+        (With<Player>, With<LocalPlayer>),
+    >,
     muzzle_q: Query<&GlobalTransform, With<TankMuzzle>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
-    aim_mode: Res<AimModeState>,
     aim_settings: Res<AimSettings>,
     time: Res<Time>,
 ) {
-    let Ok((player_entity, mut fire_control, weapon)) = player_q.single_mut() else {
+    let Ok((player_entity, mut fire_control, weapon, intent)) = player_q.single_mut() else {
         return;
     };
 
-    if !mouse.pressed(MouseButton::Left) {
+    if !intent.fire_pressed {
         fire_control.cooldown.reset();
         return;
     }
 
     fire_control.cooldown.tick(time.delta());
 
-    if !mouse.just_pressed(MouseButton::Left) && !fire_control.cooldown.just_finished() {
+    if !intent.fire_just_pressed && !fire_control.cooldown.just_finished() {
         return;
     }
 
@@ -60,7 +62,7 @@ pub fn fire_system(
         .exclude_rigid_body(player_entity)
         .exclude_sensors();
 
-    let (travel_distance, impact) = if aim_mode.artillery_active {
+    let (travel_distance, impact) = if intent.artillery_active {
         let ballistic = predict_ballistic_impact(
             &rapier_context,
             ray_origin,

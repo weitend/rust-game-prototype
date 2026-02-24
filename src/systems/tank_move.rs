@@ -3,6 +3,7 @@ use bevy_rapier3d::prelude::{KinematicCharacterController, KinematicCharacterCon
 
 use crate::{
     components::{
+        intent::PlayerIntent,
         player::{Player, PlayerControllerState},
         tank::TankHull,
     },
@@ -10,7 +11,6 @@ use crate::{
 };
 
 pub fn tank_hull_move_system(
-    keyboard: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     settings: Res<TankSettings>,
     mut player_q: Query<
@@ -18,18 +18,20 @@ pub fn tank_hull_move_system(
             &mut Transform,
             &mut KinematicCharacterController,
             &mut PlayerControllerState,
+            &PlayerIntent,
             Option<&KinematicCharacterControllerOutput>,
         ),
         (With<Player>, With<TankHull>),
     >,
 ) {
-    let Ok((mut player_tf, mut controller, mut state, output)) = player_q.single_mut() else {
+    let Ok((mut player_tf, mut controller, mut state, intent, output)) = player_q.single_mut()
+    else {
         return;
     };
 
     let dt = time.delta_secs();
-    let throttle_axis = axis_pressed(&keyboard, KeyCode::KeyW, KeyCode::KeyS).clamp(-1.0, 1.0);
-    let turn_axis = axis_pressed(&keyboard, KeyCode::KeyA, KeyCode::KeyD).clamp(-1.0, 1.0);
+    let throttle_axis = intent.throttle;
+    let turn_axis = intent.turn;
 
     player_tf.rotate_y(turn_axis * settings.yaw_speed * dt);
 
@@ -53,10 +55,4 @@ pub fn tank_hull_move_system(
 
     let horizontal = forward * (throttle_axis * drive_speed * dt);
     controller.translation = Some(horizontal + Vec3::Y * state.vertical_velocity * dt);
-}
-
-fn axis_pressed(input: &ButtonInput<KeyCode>, positive: KeyCode, negative: KeyCode) -> f32 {
-    let pos = input.pressed(positive) as u8 as f32;
-    let neg = input.pressed(negative) as u8 as f32;
-    pos - neg
 }

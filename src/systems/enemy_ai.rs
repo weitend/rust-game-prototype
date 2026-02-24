@@ -5,6 +5,7 @@ use crate::{
     components::{
         enemy::{Enemy, EnemyAi, EnemyAiState, EnemyControllerState},
         fire_control::FireControl,
+        intent::EnemyIntent,
         player::Player,
         shoot_origin::ShootOrigin,
         shot_tracer::{ShotTracer, ShotTracerLifetime},
@@ -68,37 +69,27 @@ pub fn enemy_ai_state_system(
 
 pub fn enemy_move_system(
     time: Res<Time>,
-    player_q: Query<&Transform, (With<Player>, Without<Enemy>)>,
     mut enemies: Query<
         (
             &mut Transform,
             &mut KinematicCharacterController,
             &mut EnemyControllerState,
             Option<&KinematicCharacterControllerOutput>,
-            &EnemyAi,
+            &EnemyIntent,
         ),
         (With<Enemy>, Without<Player>),
     >,
 ) {
-    let Ok(player_tf) = player_q.single() else {
-        return;
-    };
-
     let dt = time.delta_secs();
 
-    for (mut enemy_tf, mut controller, mut motor_state, output, ai) in &mut enemies {
-        let mut to_player = player_tf.translation - enemy_tf.translation;
-        to_player.y = 0.0;
-        let look_dir = to_player.normalize_or_zero();
-
-        if look_dir != Vec3::ZERO {
-            let yaw = look_dir.x.atan2(-look_dir.z);
+    for (mut enemy_tf, mut controller, mut motor_state, output, intent) in &mut enemies {
+        if let Some(yaw) = intent.look_yaw {
             enemy_tf.rotation = Quat::from_rotation_y(yaw);
         }
 
         let mut horizontal = Vec3::ZERO;
-        if ai.state == EnemyAiState::Chase {
-            horizontal = look_dir * ENEMY_SPEED * dt;
+        if intent.move_dir != Vec3::ZERO {
+            horizontal = intent.move_dir * ENEMY_SPEED * dt;
         }
         horizontal.y = 0.0;
 
@@ -124,24 +115,20 @@ pub fn enemy_fire_system(
             &ShootOrigin,
             &mut FireControl,
             &HitscanWeapon,
-            &EnemyAi,
+            &EnemyIntent,
         ),
         With<Enemy>,
     >,
-    player_q: Query<&Transform, With<Player>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
     time: Res<Time>,
 ) {
-    let Ok(player_tf) = player_q.single() else {
-        return;
-    };
     let Ok(rapier_context) = rapier_context.single() else {
         return;
     };
 
-    for (enemy_entity, enemy_tf, shoot_origin, mut fire_control, weapon, ai) in &mut enemies {
-        if ai.state != EnemyAiState::Attack {
+    for (enemy_entity, enemy_tf, shoot_origin, mut fire_control, weapon, intent) in &mut enemies {
+        if !intent.fire {
             fire_control.cooldown.reset();
             continue;
         }
@@ -152,7 +139,7 @@ pub fn enemy_fire_system(
         }
 
         let ray_origin = enemy_tf.translation + enemy_tf.rotation * shoot_origin.muzzle_offset;
-        let ray_target = player_tf.translation + Vec3::Y * PLAYER_AIM_HEIGHT;
+        let ray_target = intent.aim_target;
         let ray_dir = (ray_target - ray_origin).normalize_or_zero();
         if ray_dir == Vec3::ZERO {
             continue;

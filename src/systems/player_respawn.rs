@@ -5,6 +5,7 @@ use crate::{
     components::{
         combat::{Health, Team},
         fire_control::FireControl,
+        intent::PlayerIntent,
         player::{LocalPlayer, Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
         tank::{TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankTurret, TankTurretState},
@@ -39,6 +40,7 @@ pub fn spawn_player_from_template(
         Team::Player,
         Health::new(template.max_health),
         PlayerControllerState::default(),
+        PlayerIntent::default(),
     ));
 
     player_entity.insert((

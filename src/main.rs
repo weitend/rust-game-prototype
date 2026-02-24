@@ -12,6 +12,7 @@ use systems::combat::*;
 use systems::enemy_ai::*;
 use systems::fire::*;
 use systems::impact::*;
+use systems::intent::*;
 use systems::lock_cursor::*;
 use systems::player_respawn::*;
 use systems::setup::*;
@@ -49,6 +50,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                player_input_intent_system,
                 update_aim_mode_system,
                 tank_hull_move_system,
                 tank_turret_yaw_system,
@@ -56,6 +58,7 @@ fn main() {
                 update_aim_marker_system,
                 update_artillery_vignette_system,
                 enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
+                enemy_intent_from_ai_system,
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,
                 enemy_fire_system.run_if(on_timer(Duration::from_millis(50))),

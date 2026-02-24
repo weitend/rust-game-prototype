@@ -9,6 +9,7 @@ use crate::{
         enemy::{Enemy, EnemyAi, EnemyControllerState},
         fire_control::FireControl,
         follow_camera::FollowCamera,
+        intent::EnemyIntent,
         shoot_origin::ShootOrigin,
         weapon::HitscanWeapon,
     },
@@ -89,6 +90,7 @@ pub fn setup(
                 Health::new(100.0),
                 EnemyAi::new(30.0, 16.0),
                 EnemyControllerState::default(),
+                EnemyIntent::default(),
                 ShootOrigin {
                     muzzle_offset: enemy_muzzle_offset,
                 },

@@ -6,6 +6,7 @@ pub mod destructible_surface;
 pub mod enemy;
 pub mod fire_control;
 pub mod follow_camera;
+pub mod intent;
 pub mod obstacle;
 pub mod player;
 pub mod shoot_origin;

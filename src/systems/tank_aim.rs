@@ -1,8 +1,9 @@
-use bevy::{input::mouse::MouseMotion, prelude::*};
+use bevy::prelude::*;
 
 use crate::{
     components::{
-        player::Player,
+        intent::PlayerIntent,
+        player::{LocalPlayer, Player},
         tank::{TankBarrel, TankBarrelState, TankHull, TankTurret, TankTurretState},
     },
     resources::{
@@ -12,29 +13,31 @@ use crate::{
 };
 
 pub fn update_aim_mode_system(
-    mouse: Res<ButtonInput<MouseButton>>,
     mut aim_mode: ResMut<AimModeState>,
+    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
 ) {
-    aim_mode.artillery_active = mouse.pressed(MouseButton::Right);
+    aim_mode.artillery_active = player_intent_q
+        .single()
+        .map(|intent| intent.artillery_active)
+        .unwrap_or(false);
 }
 
 pub fn tank_turret_yaw_system(
-    mut mouse_motion: MessageReader<MouseMotion>,
     settings: Res<TankSettings>,
+    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
     hull_q: Query<&Transform, (With<Player>, With<TankHull>, Without<TankTurret>)>,
     mut turret_q: Query<
         (&mut Transform, &mut TankTurretState),
         (With<TankTurret>, Without<Player>, Without<TankHull>),
     >,
 ) {
+    let Ok(intent) = player_intent_q.single() else {
+        return;
+    };
     let Ok(hull_tf) = hull_q.single() else {
         return;
     };
-
-    let mut delta_x = 0.0;
-    for event in mouse_motion.read() {
-        delta_x += event.delta.x;
-    }
+    let delta_x = intent.turret_yaw_delta;
 
     let Ok((mut turret_tf, mut turret_state)) = turret_q.single_mut() else {
         return;
@@ -61,23 +64,22 @@ fn yaw_from_rotation(rotation: Quat) -> f32 {
 }
 
 pub fn tank_barrel_pitch_system(
-    mut mouse_motion: MessageReader<MouseMotion>,
     time: Res<Time>,
-    aim_mode: Res<AimModeState>,
     aim_settings: Res<AimSettings>,
     settings: Res<TankSettings>,
+    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
     mut barrel_q: Query<(&mut Transform, &mut TankBarrelState), With<TankBarrel>>,
 ) {
-    let mut delta_y = 0.0;
-    for event in mouse_motion.read() {
-        delta_y += event.delta.y;
-    }
+    let Ok(intent) = player_intent_q.single() else {
+        return;
+    };
+    let delta_y = intent.barrel_pitch_delta;
 
     let Ok((mut barrel_tf, mut barrel_state)) = barrel_q.single_mut() else {
         return;
     };
 
-    let (pitch_min, pitch_max) = if aim_mode.artillery_active {
+    let (pitch_min, pitch_max) = if intent.artillery_active {
         (
             aim_settings.artillery_pitch_min,
             aim_settings.artillery_pitch_limit(),
@@ -86,7 +88,7 @@ pub fn tank_barrel_pitch_system(
         (settings.barrel_pitch_min, settings.barrel_pitch_max)
     };
 
-    if aim_mode.artillery_active && barrel_state.pitch < pitch_min && delta_y.abs() <= f32::EPSILON
+    if intent.artillery_active && barrel_state.pitch < pitch_min && delta_y.abs() <= f32::EPSILON
     {
         let raise = aim_settings.artillery_auto_raise_speed * time.delta_secs();
         barrel_state.pitch = (barrel_state.pitch + raise).min(pitch_min);
