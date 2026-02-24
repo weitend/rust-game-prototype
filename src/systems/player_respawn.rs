@@ -6,9 +6,13 @@ use crate::{
         combat::{Health, Team},
         fire_control::FireControl,
         intent::PlayerIntent,
+        owner::OwnedBy,
         player::{LocalPlayer, Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
-        tank::{TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankTurret, TankTurretState},
+        tank::{
+            TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts, TankTurret,
+            TankTurretState,
+        },
         weapon::HitscanWeapon,
     },
     resources::{
@@ -42,6 +46,7 @@ pub fn spawn_player_from_template(
         PlayerControllerState::default(),
         PlayerIntent::default(),
     ));
+    let player_entity_id = player_entity.id();
 
     player_entity.insert((
         ShootOrigin {
@@ -63,40 +68,64 @@ pub fn spawn_player_from_template(
         },
     ));
 
-    player_entity.with_children(|parent| {
-        parent
-            .spawn((
-                Name::new("TankTurret"),
-                Mesh3d(template.turret_mesh.clone()),
-                MeshMaterial3d(template.turret_material.clone()),
-                Transform::from_translation(turret_local_offset),
-                TankTurret,
-                TankTurretState::default(),
-            ))
-            .with_children(|turret| {
-                turret
-                    .spawn((
-                        Name::new("TankBarrelPivot"),
-                        Transform::from_translation(barrel_pivot_local_offset),
-                        Visibility::default(),
-                        TankBarrel,
-                        TankBarrelState::default(),
-                    ))
-                    .with_children(|barrel| {
-                        barrel.spawn((
-                            Name::new("TankBarrel"),
-                            Mesh3d(template.barrel_mesh.clone()),
-                            MeshMaterial3d(template.barrel_material.clone()),
-                            Transform::from_translation(barrel_visual_local_offset),
-                        ));
-                        barrel.spawn((
-                            Name::new("TankMuzzle"),
-                            Transform::from_translation(muzzle_local_offset),
-                            Visibility::default(),
-                            TankMuzzle,
-                        ));
-                    });
-            });
+    let turret_entity = commands
+        .spawn((
+            Name::new("TankTurret"),
+            Mesh3d(template.turret_mesh.clone()),
+            MeshMaterial3d(template.turret_material.clone()),
+            Transform::from_translation(turret_local_offset),
+            OwnedBy {
+                entity: player_entity_id,
+            },
+            TankTurret,
+            TankTurretState::default(),
+        ))
+        .id();
+
+    let barrel_entity = commands
+        .spawn((
+            Name::new("TankBarrelPivot"),
+            Transform::from_translation(barrel_pivot_local_offset),
+            Visibility::default(),
+            OwnedBy {
+                entity: player_entity_id,
+            },
+            TankBarrel,
+            TankBarrelState::default(),
+        ))
+        .id();
+
+    let barrel_visual_entity = commands
+        .spawn((
+            Name::new("TankBarrel"),
+            Mesh3d(template.barrel_mesh.clone()),
+            MeshMaterial3d(template.barrel_material.clone()),
+            Transform::from_translation(barrel_visual_local_offset),
+        ))
+        .id();
+
+    let muzzle_entity = commands
+        .spawn((
+            Name::new("TankMuzzle"),
+            Transform::from_translation(muzzle_local_offset),
+            Visibility::default(),
+            OwnedBy {
+                entity: player_entity_id,
+            },
+            TankMuzzle,
+        ))
+        .id();
+
+    commands
+        .entity(barrel_entity)
+        .add_child(barrel_visual_entity);
+    commands.entity(barrel_entity).add_child(muzzle_entity);
+    commands.entity(turret_entity).add_child(barrel_entity);
+    commands.entity(player_entity_id).add_child(turret_entity);
+    commands.entity(player_entity_id).insert(TankParts {
+        turret: turret_entity,
+        barrel: barrel_entity,
+        muzzle: muzzle_entity,
     });
 }
 

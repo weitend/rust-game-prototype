@@ -4,11 +4,6 @@ use crate::utils::ballistics::BallisticParams;
 
 pub const AIM_MARKER_RENDER_LAYER: usize = 1;
 
-#[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct AimModeState {
-    pub artillery_active: bool,
-}
-
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct AimSettings {
     pub marker_radius: f32,

@@ -1,4 +1,4 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Vec3};
 
 #[derive(Component)]
 pub struct Enemy;
@@ -30,4 +30,6 @@ impl EnemyAi {
 #[derive(Component, Default)]
 pub struct EnemyControllerState {
     pub vertical_velocity: f32,
+    pub planar_velocity: Vec3,
+    pub yaw_velocity: f32,
 }

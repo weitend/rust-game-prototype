@@ -3,43 +3,44 @@ use bevy::prelude::*;
 use crate::{
     components::{
         intent::PlayerIntent,
+        owner::OwnedBy,
         player::{LocalPlayer, Player},
-        tank::{TankBarrel, TankBarrelState, TankHull, TankTurret, TankTurretState},
+        tank::{TankBarrel, TankBarrelState, TankHull, TankParts, TankTurret, TankTurretState},
     },
     resources::{
-        aim_settings::{AimModeState, AimSettings},
-        tank_settings::TankSettings,
+        aim_settings::AimSettings, local_player::LocalPlayerContext, tank_settings::TankSettings,
     },
+    utils::local_player::resolve_local_player_entity,
 };
-
-pub fn update_aim_mode_system(
-    mut aim_mode: ResMut<AimModeState>,
-    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
-) {
-    aim_mode.artillery_active = player_intent_q
-        .single()
-        .map(|intent| intent.artillery_active)
-        .unwrap_or(false);
-}
 
 pub fn tank_turret_yaw_system(
     settings: Res<TankSettings>,
-    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
-    hull_q: Query<&Transform, (With<Player>, With<TankHull>, Without<TankTurret>)>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    player_q: Query<(&PlayerIntent, &Transform, &TankParts), (With<Player>, With<TankHull>)>,
     mut turret_q: Query<
-        (&mut Transform, &mut TankTurretState),
+        (&mut Transform, &mut TankTurretState, &OwnedBy),
         (With<TankTurret>, Without<Player>, Without<TankHull>),
     >,
 ) {
-    let Ok(intent) = player_intent_q.single() else {
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
         return;
     };
-    let Ok(hull_tf) = hull_q.single() else {
+    let Ok((intent, hull_tf, tank_parts)) = player_q.get(player_entity) else {
         return;
     };
     let delta_x = intent.turret_yaw_delta;
 
-    let Ok((mut turret_tf, mut turret_state)) = turret_q.single_mut() else {
+    let Ok((mut turret_tf, mut turret_state, owned_by)) = turret_q.get_mut(tank_parts.turret)
+    else {
+        return;
+    };
+    if owned_by.entity != player_entity {
+        warn!(
+            "TankTurret {:?} is owned by {:?}, expected {:?}",
+            tank_parts.turret, owned_by.entity, player_entity
+        );
         return;
     };
 
@@ -67,15 +68,32 @@ pub fn tank_barrel_pitch_system(
     time: Res<Time>,
     aim_settings: Res<AimSettings>,
     settings: Res<TankSettings>,
-    player_intent_q: Query<&PlayerIntent, (With<Player>, With<LocalPlayer>)>,
-    mut barrel_q: Query<(&mut Transform, &mut TankBarrelState), With<TankBarrel>>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    player_q: Query<(&PlayerIntent, &TankParts), With<Player>>,
+    mut barrel_q: Query<
+        (&mut Transform, &mut TankBarrelState, &OwnedBy),
+        (With<TankBarrel>, Without<Player>),
+    >,
 ) {
-    let Ok(intent) = player_intent_q.single() else {
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
+        return;
+    };
+    let Ok((intent, tank_parts)) = player_q.get(player_entity) else {
         return;
     };
     let delta_y = intent.barrel_pitch_delta;
 
-    let Ok((mut barrel_tf, mut barrel_state)) = barrel_q.single_mut() else {
+    let Ok((mut barrel_tf, mut barrel_state, owned_by)) = barrel_q.get_mut(tank_parts.barrel)
+    else {
+        return;
+    };
+    if owned_by.entity != player_entity {
+        warn!(
+            "TankBarrel {:?} is owned by {:?}, expected {:?}",
+            tank_parts.barrel, owned_by.entity, player_entity
+        );
         return;
     };
 
@@ -88,8 +106,7 @@ pub fn tank_barrel_pitch_system(
         (settings.barrel_pitch_min, settings.barrel_pitch_max)
     };
 
-    if intent.artillery_active && barrel_state.pitch < pitch_min && delta_y.abs() <= f32::EPSILON
-    {
+    if intent.artillery_active && barrel_state.pitch < pitch_min && delta_y.abs() <= f32::EPSILON {
         let raise = aim_settings.artillery_auto_raise_speed * time.delta_secs();
         barrel_state.pitch = (barrel_state.pitch + raise).min(pitch_min);
     } else if delta_y.abs() > f32::EPSILON {

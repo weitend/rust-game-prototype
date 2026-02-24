@@ -5,33 +5,50 @@ use crate::{
     components::{
         fire_control::FireControl,
         intent::PlayerIntent,
+        owner::OwnedBy,
         player::{LocalPlayer, Player},
         shot_tracer::{ShotTracer, ShotTracerLifetime},
-        tank::TankMuzzle,
+        tank::{TankMuzzle, TankParts},
         weapon::HitscanWeapon,
     },
     resources::{
-        aim_settings::AimSettings,
-        tracer_assets::TracerAssets,
+        aim_settings::AimSettings, local_player::LocalPlayerContext, tracer_assets::TracerAssets,
     },
     systems::impact::ImpactEvent,
-    utils::{ballistics::predict_ballistic_impact, muzzle::muzzle_ray},
+    utils::{
+        ballistics::predict_ballistic_impact, local_player::resolve_local_player_entity,
+        muzzle::muzzle_ray,
+    },
 };
 
 pub fn fire_system(
     mut commands: Commands,
     mut impact_events: MessageWriter<ImpactEvent>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     mut player_q: Query<
-        (Entity, &mut FireControl, &HitscanWeapon, &PlayerIntent),
-        (With<Player>, With<LocalPlayer>),
+        (
+            Entity,
+            &TankParts,
+            &mut FireControl,
+            &HitscanWeapon,
+            &PlayerIntent,
+        ),
+        With<Player>,
     >,
-    muzzle_q: Query<&GlobalTransform, With<TankMuzzle>>,
+    muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
     aim_settings: Res<AimSettings>,
     time: Res<Time>,
 ) {
-    let Ok((player_entity, mut fire_control, weapon, intent)) = player_q.single_mut() else {
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
+        return;
+    };
+    let Ok((player_entity, tank_parts, mut fire_control, weapon, intent)) =
+        player_q.get_mut(player_entity)
+    else {
         return;
     };
 
@@ -49,7 +66,14 @@ pub fn fire_system(
     let Ok(rapier_context) = rapier_context.single() else {
         return;
     };
-    let Ok(muzzle_tf) = muzzle_q.single() else {
+    let Ok((muzzle_tf, owned_by)) = muzzle_q.get(tank_parts.muzzle) else {
+        return;
+    };
+    if owned_by.entity != player_entity {
+        warn!(
+            "TankMuzzle {:?} is owned by {:?}, expected {:?}",
+            tank_parts.muzzle, owned_by.entity, player_entity
+        );
         return;
     };
 

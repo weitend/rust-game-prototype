@@ -1,4 +1,4 @@
-use bevy::prelude::Component;
+use bevy::prelude::{Component, Entity};
 
 #[derive(Component)]
 pub struct TankHull;
@@ -21,3 +21,10 @@ pub struct TankBarrelState {
 
 #[derive(Component)]
 pub struct TankMuzzle;
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct TankParts {
+    pub turret: Entity,
+    pub barrel: Entity,
+    pub muzzle: Entity,
+}

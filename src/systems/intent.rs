@@ -5,6 +5,8 @@ use crate::components::{
     intent::{EnemyIntent, PlayerIntent},
     player::{LocalPlayer, Player},
 };
+use crate::resources::local_player::LocalPlayerContext;
+use crate::utils::local_player::resolve_local_player_entity;
 
 const PLAYER_AIM_HEIGHT: f32 = 0.4;
 
@@ -12,16 +14,27 @@ pub fn player_input_intent_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
-    mut player_q: Query<&mut PlayerIntent, (With<Player>, With<LocalPlayer>)>,
+    mut player_q: Query<(Entity, &mut PlayerIntent), (With<Player>, With<LocalPlayer>)>,
+    mut local_player_ctx: ResMut<LocalPlayerContext>,
 ) {
     let mut look_delta = Vec2::ZERO;
     for event in mouse_motion.read() {
         look_delta += event.delta;
     }
 
-    let Ok(mut intent) = player_q.single_mut() else {
+    let mut player_iter = player_q.iter_mut();
+    let Some((player_entity, mut intent)) = player_iter.next() else {
+        local_player_ctx.entity = None;
         return;
     };
+    if player_iter.next().is_some() {
+        warn!(
+            "Expected exactly one LocalPlayer; found multiple, input intent skipped for this frame"
+        );
+        local_player_ctx.entity = None;
+        return;
+    }
+    local_player_ctx.entity = Some(player_entity);
 
     intent.throttle = axis_pressed(&keyboard, KeyCode::KeyW, KeyCode::KeyS).clamp(-1.0, 1.0);
     intent.turn = axis_pressed(&keyboard, KeyCode::KeyA, KeyCode::KeyD).clamp(-1.0, 1.0);
@@ -33,12 +46,13 @@ pub fn player_input_intent_system(
 }
 
 pub fn enemy_intent_from_ai_system(
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     player_q: Query<&Transform, With<Player>>,
     mut enemies: Query<(&Transform, &EnemyAi, &mut EnemyIntent), With<Enemy>>,
 ) {
-    let player_aim_target = player_q
-        .single()
-        .ok()
+    let player_aim_target = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+        .and_then(|player_entity| player_q.get(player_entity).ok())
         .map(|player_tf| player_tf.translation + Vec3::Y * PLAYER_AIM_HEIGHT);
 
     for (enemy_tf, ai, mut intent) in &mut enemies {

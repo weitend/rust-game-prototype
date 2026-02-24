@@ -4,30 +4,49 @@ use bevy_rapier3d::prelude::*;
 use crate::{
     components::{
         aim_marker::{AimMarker, ArtilleryVignette},
+        intent::PlayerIntent,
+        owner::OwnedBy,
         player::{LocalPlayer, Player},
-        tank::TankMuzzle,
+        tank::{TankMuzzle, TankParts},
         weapon::HitscanWeapon,
     },
-    resources::aim_settings::{AimModeState, AimSettings},
-    utils::{ballistics::predict_ballistic_impact, muzzle::muzzle_ray},
+    resources::{aim_settings::AimSettings, local_player::LocalPlayerContext},
+    utils::{
+        ballistics::predict_ballistic_impact, local_player::resolve_local_player_entity,
+        muzzle::muzzle_ray,
+    },
 };
 
 pub fn update_aim_marker_system(
     mut marker_q: Query<(&mut Transform, &mut Visibility), With<AimMarker>>,
-    local_player_q: Query<(Entity, &HitscanWeapon), (With<Player>, With<LocalPlayer>)>,
-    muzzle_q: Query<&GlobalTransform, With<TankMuzzle>>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    player_q: Query<(Entity, &TankParts, &HitscanWeapon, &PlayerIntent), With<Player>>,
+    muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
     rapier_context: ReadRapierContext,
-    aim_mode: Res<AimModeState>,
     settings: Res<AimSettings>,
 ) {
-    let Ok((mut marker_tf, mut marker_visibility)) = marker_q.single_mut() else {
+    let Some((mut marker_tf, mut marker_visibility)) = marker_q.iter_mut().next() else {
         return;
     };
-    let Ok((player_entity, weapon)) = local_player_q.single() else {
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
         *marker_visibility = Visibility::Hidden;
         return;
     };
-    let Ok(muzzle_tf) = muzzle_q.single() else {
+    let Ok((player_entity, tank_parts, weapon, intent)) = player_q.get(player_entity) else {
+        *marker_visibility = Visibility::Hidden;
+        return;
+    };
+    let Ok((muzzle_tf, owned_by)) = muzzle_q.get(tank_parts.muzzle) else {
+        *marker_visibility = Visibility::Hidden;
+        return;
+    };
+    if owned_by.entity != player_entity {
+        warn!(
+            "TankMuzzle {:?} is owned by {:?}, expected {:?}",
+            tank_parts.muzzle, owned_by.entity, player_entity
+        );
         *marker_visibility = Visibility::Hidden;
         return;
     };
@@ -45,7 +64,7 @@ pub fn update_aim_marker_system(
         .exclude_collider(player_entity)
         .exclude_rigid_body(player_entity)
         .exclude_sensors();
-    let impact = if aim_mode.artillery_active {
+    let impact = if intent.artillery_active {
         predict_ballistic_impact(
             &rapier_context,
             ray_origin,
@@ -67,7 +86,11 @@ pub fn update_aim_marker_system(
                 point: hit.point,
                 normal: {
                     let n = hit.normal.normalize_or_zero();
-                    if n == Vec3::ZERO { Vec3::Y } else { n }
+                    if n == Vec3::ZERO {
+                        Vec3::Y
+                    } else {
+                        n
+                    }
                 },
                 travel_distance: hit.time_of_impact.max(0.0),
             })
@@ -84,15 +107,21 @@ pub fn update_aim_marker_system(
 }
 
 pub fn update_artillery_vignette_system(
-    aim_mode: Res<AimModeState>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    player_intent_q: Query<&PlayerIntent, With<Player>>,
     settings: Res<AimSettings>,
     mut vignette_q: Query<(&mut BorderColor, &mut BackgroundColor), With<ArtilleryVignette>>,
 ) {
-    let Ok((mut border_color, mut bg_color)) = vignette_q.single_mut() else {
+    let Some((mut border_color, mut bg_color)) = vignette_q.iter_mut().next() else {
         return;
     };
 
-    let alpha = if aim_mode.artillery_active {
+    let artillery_active = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+        .and_then(|player_entity| player_intent_q.get(player_entity).ok())
+        .map(|intent| intent.artillery_active)
+        .unwrap_or(false);
+    let alpha = if artillery_active {
         settings.vignette_alpha
     } else {
         0.0

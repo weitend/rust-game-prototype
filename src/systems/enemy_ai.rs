@@ -6,27 +6,39 @@ use crate::{
         enemy::{Enemy, EnemyAi, EnemyAiState, EnemyControllerState},
         fire_control::FireControl,
         intent::EnemyIntent,
-        player::Player,
+        player::{LocalPlayer, Player},
         shoot_origin::ShootOrigin,
         shot_tracer::{ShotTracer, ShotTracerLifetime},
         weapon::HitscanWeapon,
     },
-    resources::tracer_assets::TracerAssets,
+    resources::{local_player::LocalPlayerContext, tracer_assets::TracerAssets},
     systems::impact::ImpactEvent,
+    utils::local_player::resolve_local_player_entity,
 };
 
 const ENEMY_SPEED: f32 = 10.2;
+const ENEMY_ACCEL: f32 = 16.0;
+const ENEMY_BRAKE: f32 = 22.0;
+const ENEMY_YAW_SPEED: f32 = 4.4;
+const ENEMY_YAW_ACCEL: f32 = 14.0;
+const ENEMY_YAW_DAMPING: f32 = 10.0;
 const ENEMY_GRAVITY: f32 = 13.0;
 const ENEMY_MAX_FALL_SPEED: f32 = 35.0;
 const ENEMY_EYE_HEIGHT: f32 = 0.45;
 const PLAYER_AIM_HEIGHT: f32 = 0.4;
 
 pub fn enemy_ai_state_system(
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     mut enemies: Query<(Entity, &Transform, &mut EnemyAi), With<Enemy>>,
-    player_q: Query<(Entity, &Transform), With<Player>>,
+    player_q: Query<&Transform, With<Player>>,
     rapier_context: ReadRapierContext,
 ) {
-    let Ok((player_entity, player_tf)) = player_q.single() else {
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
+        return;
+    };
+    let Ok(player_tf) = player_q.get(player_entity) else {
         return;
     };
     let Ok(rapier_context) = rapier_context.single() else {
@@ -84,13 +96,44 @@ pub fn enemy_move_system(
 
     for (mut enemy_tf, mut controller, mut motor_state, output, intent) in &mut enemies {
         if let Some(yaw) = intent.look_yaw {
-            enemy_tf.rotation = Quat::from_rotation_y(yaw);
+            let current_yaw = yaw_from_rotation(enemy_tf.rotation);
+            let yaw_error = normalize_angle(yaw - current_yaw);
+            let target_yaw_velocity = yaw_error.clamp(-1.0, 1.0) * ENEMY_YAW_SPEED;
+            let yaw_delta = target_yaw_velocity - motor_state.yaw_velocity;
+            let yaw_step = ENEMY_YAW_ACCEL * dt;
+            motor_state.yaw_velocity += yaw_delta.clamp(-yaw_step, yaw_step);
+        } else {
+            let damping = (1.0 - ENEMY_YAW_DAMPING * dt).clamp(0.0, 1.0);
+            motor_state.yaw_velocity *= damping;
         }
 
-        let mut horizontal = Vec3::ZERO;
-        if intent.move_dir != Vec3::ZERO {
-            horizontal = intent.move_dir * ENEMY_SPEED * dt;
+        enemy_tf.rotate_y(motor_state.yaw_velocity * dt);
+
+        let target_planar_velocity = intent.move_dir.normalize_or_zero() * ENEMY_SPEED;
+        let planar_delta = target_planar_velocity - motor_state.planar_velocity;
+        let accel_rate = if target_planar_velocity == Vec3::ZERO {
+            ENEMY_BRAKE
+        } else if motor_state.planar_velocity.length_squared() > f32::EPSILON
+            && motor_state
+                .planar_velocity
+                .normalize_or_zero()
+                .dot(target_planar_velocity.normalize_or_zero())
+                < 0.0
+        {
+            ENEMY_BRAKE
+        } else {
+            ENEMY_ACCEL
+        };
+
+        let max_step = accel_rate * dt;
+        let delta_len = planar_delta.length();
+        if delta_len <= max_step || delta_len <= f32::EPSILON {
+            motor_state.planar_velocity = target_planar_velocity;
+        } else {
+            motor_state.planar_velocity += planar_delta / delta_len * max_step;
         }
+
+        let mut horizontal = motor_state.planar_velocity * dt;
         horizontal.y = 0.0;
 
         let grounded = output.is_some_and(|o| o.grounded);
@@ -103,6 +146,16 @@ pub fn enemy_move_system(
 
         controller.translation = Some(horizontal + Vec3::Y * motor_state.vertical_velocity * dt);
     }
+}
+
+fn normalize_angle(angle: f32) -> f32 {
+    let tau = std::f32::consts::TAU;
+    (angle + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI
+}
+
+fn yaw_from_rotation(rotation: Quat) -> f32 {
+    let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+    normalize_angle(yaw)
 }
 
 pub fn enemy_fire_system(

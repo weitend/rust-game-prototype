@@ -21,8 +21,7 @@ use systems::tank_aim::*;
 use systems::tank_move::*;
 
 use crate::resources::{
-    aim_settings::{AimModeState, AimSettings},
-    combat_rules::CombatRules,
+    aim_settings::AimSettings, combat_rules::CombatRules, local_player::LocalPlayerContext,
     tank_settings::TankSettings,
 };
 
@@ -40,7 +39,7 @@ fn main() {
             PolygonPlugin,
         ))
         .insert_resource(AimSettings::default())
-        .insert_resource(AimModeState::default())
+        .insert_resource(LocalPlayerContext::default())
         .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default())
         .add_message::<ImpactEvent>()
@@ -51,7 +50,6 @@ fn main() {
             Update,
             (
                 player_input_intent_system,
-                update_aim_mode_system,
                 tank_hull_move_system,
                 tank_turret_yaw_system,
                 tank_barrel_pitch_system,

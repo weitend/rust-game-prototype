@@ -8,6 +8,7 @@ pub mod fire_control;
 pub mod follow_camera;
 pub mod intent;
 pub mod obstacle;
+pub mod owner;
 pub mod player;
 pub mod shoot_origin;
 pub mod shot_tracer;
