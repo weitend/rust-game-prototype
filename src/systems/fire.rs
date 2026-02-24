@@ -9,8 +9,12 @@ use crate::{
         tank::TankMuzzle,
         weapon::HitscanWeapon,
     },
-    resources::tracer_assets::TracerAssets,
+    resources::{
+        aim_settings::{AimModeState, AimSettings},
+        tracer_assets::TracerAssets,
+    },
     systems::impact::ImpactEvent,
+    utils::ballistics::predict_ballistic_impact,
 };
 
 pub fn fire_system(
@@ -21,6 +25,8 @@ pub fn fire_system(
     muzzle_q: Query<&GlobalTransform, With<TankMuzzle>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
+    aim_mode: Res<AimModeState>,
+    aim_settings: Res<AimSettings>,
     time: Res<Time>,
 ) {
     let Ok((player_entity, mut fire_control, weapon)) = player_q.single_mut() else {
@@ -58,13 +64,35 @@ pub fn fire_system(
         .exclude_rigid_body(player_entity)
         .exclude_sensors();
 
-    let ray_result =
-        rapier_context.cast_ray_and_get_normal(ray_origin, ray_dir, weapon.range, true, filter);
+    let (travel_distance, impact) = if aim_mode.artillery_active {
+        let ballistic = predict_ballistic_impact(
+            &rapier_context,
+            ray_origin,
+            ray_dir,
+            aim_settings.artillery_ballistic_params(weapon.range),
+            filter,
+        );
+        let distance = ballistic
+            .map(|hit| hit.travel_distance)
+            .unwrap_or(aim_settings.effective_range(weapon.range))
+            .max(0.0);
+        (distance, ballistic)
+    } else {
+        let ray_result =
+            rapier_context.cast_ray_and_get_normal(ray_origin, ray_dir, weapon.range, true, filter);
+        let distance = ray_result
+            .map(|(_, hit)| hit.time_of_impact)
+            .unwrap_or(weapon.range)
+            .max(0.0);
+        let hit = ray_result.map(|(target, hit)| crate::utils::ballistics::BallisticImpact {
+            target,
+            point: hit.point,
+            normal: hit.normal,
+            travel_distance: hit.time_of_impact.max(0.0),
+        });
+        (distance, hit)
+    };
 
-    let travel_distance = ray_result
-        .map(|(_, hit)| hit.time_of_impact)
-        .unwrap_or(weapon.range)
-        .max(0.0);
     let tracer_speed = tracer_assets.speed.max(1.0);
     let tracer_lifetime = (travel_distance / tracer_speed).max(0.01);
 
@@ -80,15 +108,15 @@ pub fn fire_system(
         },
     ));
 
-    let Some((hit_entity, hit)) = ray_result else {
+    let Some(impact) = impact else {
         return;
     };
 
     impact_events.write(ImpactEvent {
         source: Some(player_entity),
-        target: hit_entity,
-        point: hit.point,
-        normal: hit.normal,
+        target: impact.target,
+        point: impact.point,
+        normal: impact.normal,
         damage: weapon.damage,
     });
 }

@@ -5,8 +5,18 @@ use crate::{
         player::Player,
         tank::{TankBarrel, TankBarrelState, TankHull, TankTurret, TankTurretState},
     },
-    resources::tank_settings::TankSettings,
+    resources::{
+        aim_settings::{AimModeState, AimSettings},
+        tank_settings::TankSettings,
+    },
 };
+
+pub fn update_aim_mode_system(
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut aim_mode: ResMut<AimModeState>,
+) {
+    aim_mode.artillery_active = mouse.pressed(MouseButton::Right);
+}
 
 pub fn tank_turret_yaw_system(
     mut mouse_motion: MessageReader<MouseMotion>,
@@ -52,6 +62,9 @@ fn yaw_from_rotation(rotation: Quat) -> f32 {
 
 pub fn tank_barrel_pitch_system(
     mut mouse_motion: MessageReader<MouseMotion>,
+    time: Res<Time>,
+    aim_mode: Res<AimModeState>,
+    aim_settings: Res<AimSettings>,
     settings: Res<TankSettings>,
     mut barrel_q: Query<(&mut Transform, &mut TankBarrelState), With<TankBarrel>>,
 ) {
@@ -60,16 +73,28 @@ pub fn tank_barrel_pitch_system(
         delta_y += event.delta.y;
     }
 
-    if delta_y.abs() <= f32::EPSILON {
-        return;
-    }
-
     let Ok((mut barrel_tf, mut barrel_state)) = barrel_q.single_mut() else {
         return;
     };
 
-    let pitch_delta = -delta_y * settings.barrel_pitch_sensitivity;
-    let next_pitch = barrel_state.pitch + pitch_delta;
-    barrel_state.pitch = next_pitch.clamp(settings.barrel_pitch_min, settings.barrel_pitch_max);
+    let (pitch_min, pitch_max) = if aim_mode.artillery_active {
+        (
+            aim_settings.artillery_pitch_min,
+            aim_settings.artillery_pitch_limit(),
+        )
+    } else {
+        (settings.barrel_pitch_min, settings.barrel_pitch_max)
+    };
+
+    if aim_mode.artillery_active && barrel_state.pitch < pitch_min && delta_y.abs() <= f32::EPSILON
+    {
+        let raise = aim_settings.artillery_auto_raise_speed * time.delta_secs();
+        barrel_state.pitch = (barrel_state.pitch + raise).min(pitch_min);
+    } else if delta_y.abs() > f32::EPSILON {
+        let pitch_delta = -delta_y * settings.barrel_pitch_sensitivity;
+        barrel_state.pitch += pitch_delta;
+    }
+
+    barrel_state.pitch = barrel_state.pitch.clamp(pitch_min, pitch_max);
     barrel_tf.rotation = Quat::from_rotation_x(barrel_state.pitch);
 }

@@ -4,7 +4,7 @@ use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
-        aim_marker::AimMarker,
+        aim_marker::{AimMarker, ArtilleryVignette},
         combat::{Health, Team},
         enemy::{Enemy, EnemyAi, EnemyControllerState},
         fire_control::FireControl,
@@ -143,6 +143,20 @@ pub fn setup(
         Visibility::Hidden,
         AimMarker,
         RenderLayers::layer(AIM_MARKER_RENDER_LAYER),
+    ));
+
+    commands.spawn((
+        Name::new("ArtilleryVignette"),
+        Node {
+            position_type: PositionType::Absolute,
+            width: percent(100.0),
+            height: percent(100.0),
+            border: UiRect::all(px(aim_settings.vignette_border_px)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+        BorderColor::all(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+        ArtilleryVignette,
     ));
 
     // Impact mark assets startup

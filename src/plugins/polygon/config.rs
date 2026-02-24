@@ -12,7 +12,7 @@ pub struct PolygonConfig {
 impl Default for PolygonConfig {
     fn default() -> Self {
         Self {
-            module_grid: 6,
+            module_grid: 10,
             module_size: 20.0,
             module_gap: 8.0,
             platform_height: 0.2,
