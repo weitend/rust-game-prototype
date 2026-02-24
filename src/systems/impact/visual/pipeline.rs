@@ -10,9 +10,7 @@ use crate::{
 };
 
 use super::{
-    super::ImpactEvent,
-    debris::spawn_debris_chip,
-    deform::apply_dents_to_obstacle_mesh,
+    super::ImpactEvent, debris::spawn_debris_chip, deform::apply_dents_to_obstacle_mesh,
     sampling::collect_new_impact_samples,
 };
 
@@ -141,4 +139,3 @@ fn process_obstacle_impact(
     }
     frame_budget.chips_remaining -= chips_to_spawn;
 }
-

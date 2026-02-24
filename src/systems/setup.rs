@@ -14,10 +14,10 @@ use crate::{
         weapon::HitscanWeapon,
     },
     resources::{
-        aim_settings::{AIM_MARKER_RENDER_LAYER, AimSettings},
+        aim_settings::{AimSettings, AIM_MARKER_RENDER_LAYER},
         impact_assets::ImpactAssets,
+        player_motion_settings::PlayerMotionSettings,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
-        tank_settings::TankSettings,
         tracer_assets::TracerAssets,
     },
     systems::player_respawn::spawn_player_from_template,
@@ -29,7 +29,7 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     aim_settings: Res<AimSettings>,
-    tank_settings: Res<TankSettings>,
+    motion_settings: Res<PlayerMotionSettings>,
 ) {
     let muzzle_padding: f32 = 0.015;
 
@@ -54,7 +54,7 @@ pub fn setup(
         weapon_damage: 25.0,
         weapon_range: 45.0,
     };
-    spawn_player_from_template(&mut commands, &player_template, &tank_settings);
+    spawn_player_from_template(&mut commands, &player_template, &motion_settings);
     commands.insert_resource(player_template);
     commands.insert_resource(PlayerRespawnState::default());
 

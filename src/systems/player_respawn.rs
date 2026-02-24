@@ -16,8 +16,8 @@ use crate::{
         weapon::HitscanWeapon,
     },
     resources::{
+        player_motion_settings::PlayerMotionSettings,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
-        tank_settings::TankSettings,
     },
     systems::combat::DeathEvent,
     utils::collision_groups::player_collision_groups,
@@ -26,7 +26,7 @@ use crate::{
 pub fn spawn_player_from_template(
     commands: &mut Commands,
     template: &PlayerTemplate,
-    tank_settings: &TankSettings,
+    motion_settings: &PlayerMotionSettings,
 ) {
     let turret_local_offset = Vec3::new(0.0, 0.46, 0.0);
     let barrel_pivot_local_offset = Vec3::new(0.0, 0.09, -0.44);
@@ -58,7 +58,7 @@ pub fn spawn_player_from_template(
             template.collider_half_extents.y,
             template.collider_half_extents.z,
         ),
-        default_tank_controller(tank_settings),
+        default_tank_controller(motion_settings),
         FireControl {
             cooldown: Timer::from_seconds(1.0 / template.shots_per_second, TimerMode::Repeating),
         },
@@ -148,7 +148,7 @@ pub fn player_respawn_tick_system(
     time: Res<Time>,
     mut respawn: ResMut<PlayerRespawnState>,
     template: Res<PlayerTemplate>,
-    tank_settings: Res<TankSettings>,
+    motion_settings: Res<PlayerMotionSettings>,
     player_query: Query<(), With<Player>>,
 ) {
     if player_query.single().is_ok() {
@@ -165,11 +165,11 @@ pub fn player_respawn_tick_system(
         return;
     }
 
-    spawn_player_from_template(&mut commands, &template, &tank_settings);
+    spawn_player_from_template(&mut commands, &template, &motion_settings);
     respawn.pending = false;
 }
 
-fn default_tank_controller(settings: &TankSettings) -> KinematicCharacterController {
+fn default_tank_controller(settings: &PlayerMotionSettings) -> KinematicCharacterController {
     KinematicCharacterController {
         offset: CharacterLength::Absolute(settings.controller_offset),
         slide: true,

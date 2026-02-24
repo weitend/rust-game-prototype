@@ -8,7 +8,7 @@ use crate::{
         owner::OwnedBy,
         player::{LocalPlayer, Player},
         shot_tracer::{ShotTracer, ShotTracerLifetime},
-        tank::{TankMuzzle, TankParts},
+        tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts},
         weapon::HitscanWeapon,
     },
     resources::{
@@ -37,6 +37,7 @@ pub fn fire_system(
         With<Player>,
     >,
     muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
+    barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
     rapier_context: ReadRapierContext,
     tracer_assets: Res<TracerAssets>,
     aim_settings: Res<AimSettings>,
@@ -76,6 +77,17 @@ pub fn fire_system(
         );
         return;
     };
+    let Ok((barrel_state, barrel_owner)) = barrel_q.get(tank_parts.barrel) else {
+        return;
+    };
+    if barrel_owner.entity != player_entity {
+        warn!(
+            "TankBarrel {:?} is owned by {:?}, expected {:?}",
+            tank_parts.barrel, barrel_owner.entity, player_entity
+        );
+        return;
+    };
+    let artillery_active = barrel_state.artillery_mode_active;
 
     let Some((ray_origin, ray_dir)) = muzzle_ray(muzzle_tf) else {
         return;
@@ -86,7 +98,7 @@ pub fn fire_system(
         .exclude_rigid_body(player_entity)
         .exclude_sensors();
 
-    let (travel_distance, impact) = if intent.artillery_active {
+    let (travel_distance, impact) = if artillery_active {
         let ballistic = predict_ballistic_impact(
             &rapier_context,
             ray_origin,

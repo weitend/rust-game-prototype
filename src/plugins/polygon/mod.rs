@@ -9,7 +9,7 @@ use bevy_rapier3d::plugin::PhysicsSet;
 
 pub use config::PolygonConfig;
 use systems::setup_polygon_system;
-use teleports::{TeleportRuntime, sync_teleport_labels_system, teleport_player_system};
+use teleports::{sync_teleport_labels_system, teleport_player_system, TeleportRuntime};
 
 pub struct PolygonPlugin;
 

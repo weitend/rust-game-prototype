@@ -66,4 +66,3 @@ pub(super) fn spawn_debris_chip(
         },
     ));
 }
-

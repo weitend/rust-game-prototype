@@ -17,6 +17,7 @@ pub struct TankBarrel;
 #[derive(Component, Default)]
 pub struct TankBarrelState {
     pub pitch: f32,
+    pub artillery_mode_active: bool,
 }
 
 #[derive(Component)]

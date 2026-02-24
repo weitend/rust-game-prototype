@@ -97,6 +97,8 @@ pub fn tank_barrel_pitch_system(
         return;
     };
 
+    barrel_state.artillery_mode_active = intent.artillery_active;
+
     let (pitch_min, pitch_max) = if intent.artillery_active {
         (
             aim_settings.artillery_pitch_min,

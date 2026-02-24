@@ -81,7 +81,11 @@ pub fn web_radius_for_damage(damage: f32, impact_assets: &ImpactAssets) -> f32 {
 
 pub fn normalized_or_up(v: Vec3) -> Vec3 {
     let n = v.normalize_or_zero();
-    if n == Vec3::ZERO { Vec3::Y } else { n }
+    if n == Vec3::ZERO {
+        Vec3::Y
+    } else {
+        n
+    }
 }
 
 pub(crate) fn hash01(v: Vec3) -> f32 {

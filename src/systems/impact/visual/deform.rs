@@ -1,8 +1,7 @@
 use bevy::{math::Affine3A, mesh::VertexAttributeValues, prelude::*};
 
 use crate::{
-    components::destructible_mesh::DestructibleMesh,
-    resources::impact_assets::ImpactAssets,
+    components::destructible_mesh::DestructibleMesh, resources::impact_assets::ImpactAssets,
     utils::impact_math::normalized_or_up,
 };
 
@@ -88,4 +87,3 @@ pub(super) fn apply_dents_to_obstacle_mesh(
 
     applied_dents
 }
-

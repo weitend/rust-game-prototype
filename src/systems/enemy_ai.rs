@@ -11,23 +11,16 @@ use crate::{
         shot_tracer::{ShotTracer, ShotTracerLifetime},
         weapon::HitscanWeapon,
     },
-    resources::{local_player::LocalPlayerContext, tracer_assets::TracerAssets},
+    resources::{
+        enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
+        tracer_assets::TracerAssets,
+    },
     systems::impact::ImpactEvent,
     utils::local_player::resolve_local_player_entity,
 };
 
-const ENEMY_SPEED: f32 = 10.2;
-const ENEMY_ACCEL: f32 = 16.0;
-const ENEMY_BRAKE: f32 = 22.0;
-const ENEMY_YAW_SPEED: f32 = 4.4;
-const ENEMY_YAW_ACCEL: f32 = 14.0;
-const ENEMY_YAW_DAMPING: f32 = 10.0;
-const ENEMY_GRAVITY: f32 = 13.0;
-const ENEMY_MAX_FALL_SPEED: f32 = 35.0;
-const ENEMY_EYE_HEIGHT: f32 = 0.45;
-const PLAYER_AIM_HEIGHT: f32 = 0.4;
-
 pub fn enemy_ai_state_system(
+    settings: Res<EnemyMotionSettings>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     mut enemies: Query<(Entity, &Transform, &mut EnemyAi), With<Enemy>>,
@@ -54,8 +47,8 @@ pub fn enemy_ai_state_system(
             continue;
         }
 
-        let ray_origin = enemy_tf.translation + Vec3::Y * ENEMY_EYE_HEIGHT;
-        let ray_target = player_tf.translation + Vec3::Y * PLAYER_AIM_HEIGHT;
+        let ray_origin = enemy_tf.translation + Vec3::Y * settings.eye_height;
+        let ray_target = player_tf.translation + Vec3::Y * settings.target_height;
         let ray_dir = (ray_target - ray_origin).normalize_or_zero();
 
         let has_los = if ray_dir == Vec3::ZERO {
@@ -80,6 +73,7 @@ pub fn enemy_ai_state_system(
 }
 
 pub fn enemy_move_system(
+    settings: Res<EnemyMotionSettings>,
     time: Res<Time>,
     mut enemies: Query<
         (
@@ -98,21 +92,21 @@ pub fn enemy_move_system(
         if let Some(yaw) = intent.look_yaw {
             let current_yaw = yaw_from_rotation(enemy_tf.rotation);
             let yaw_error = normalize_angle(yaw - current_yaw);
-            let target_yaw_velocity = yaw_error.clamp(-1.0, 1.0) * ENEMY_YAW_SPEED;
+            let target_yaw_velocity = yaw_error.clamp(-1.0, 1.0) * settings.yaw_speed;
             let yaw_delta = target_yaw_velocity - motor_state.yaw_velocity;
-            let yaw_step = ENEMY_YAW_ACCEL * dt;
+            let yaw_step = settings.yaw_accel * dt;
             motor_state.yaw_velocity += yaw_delta.clamp(-yaw_step, yaw_step);
         } else {
-            let damping = (1.0 - ENEMY_YAW_DAMPING * dt).clamp(0.0, 1.0);
+            let damping = (1.0 - settings.yaw_damping * dt).clamp(0.0, 1.0);
             motor_state.yaw_velocity *= damping;
         }
 
         enemy_tf.rotate_y(motor_state.yaw_velocity * dt);
 
-        let target_planar_velocity = intent.move_dir.normalize_or_zero() * ENEMY_SPEED;
+        let target_planar_velocity = intent.move_dir.normalize_or_zero() * settings.speed;
         let planar_delta = target_planar_velocity - motor_state.planar_velocity;
         let accel_rate = if target_planar_velocity == Vec3::ZERO {
-            ENEMY_BRAKE
+            settings.brake
         } else if motor_state.planar_velocity.length_squared() > f32::EPSILON
             && motor_state
                 .planar_velocity
@@ -120,9 +114,9 @@ pub fn enemy_move_system(
                 .dot(target_planar_velocity.normalize_or_zero())
                 < 0.0
         {
-            ENEMY_BRAKE
+            settings.brake
         } else {
-            ENEMY_ACCEL
+            settings.accel
         };
 
         let max_step = accel_rate * dt;
@@ -140,8 +134,8 @@ pub fn enemy_move_system(
         if grounded {
             motor_state.vertical_velocity = 0.0;
         } else {
-            motor_state.vertical_velocity =
-                (motor_state.vertical_velocity - ENEMY_GRAVITY * dt).max(-ENEMY_MAX_FALL_SPEED);
+            motor_state.vertical_velocity = (motor_state.vertical_velocity - settings.gravity * dt)
+                .max(-settings.max_fall_speed);
         }
 
         controller.translation = Some(horizontal + Vec3::Y * motor_state.vertical_velocity * dt);

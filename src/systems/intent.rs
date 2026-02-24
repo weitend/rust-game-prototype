@@ -5,10 +5,10 @@ use crate::components::{
     intent::{EnemyIntent, PlayerIntent},
     player::{LocalPlayer, Player},
 };
-use crate::resources::local_player::LocalPlayerContext;
+use crate::resources::{
+    enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
+};
 use crate::utils::local_player::resolve_local_player_entity;
-
-const PLAYER_AIM_HEIGHT: f32 = 0.4;
 
 pub fn player_input_intent_system(
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -46,6 +46,7 @@ pub fn player_input_intent_system(
 }
 
 pub fn enemy_intent_from_ai_system(
+    enemy_motion: Res<EnemyMotionSettings>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     player_q: Query<&Transform, With<Player>>,
@@ -53,7 +54,7 @@ pub fn enemy_intent_from_ai_system(
 ) {
     let player_aim_target = resolve_local_player_entity(&local_player_ctx, &local_player_q)
         .and_then(|player_entity| player_q.get(player_entity).ok())
-        .map(|player_tf| player_tf.translation + Vec3::Y * PLAYER_AIM_HEIGHT);
+        .map(|player_tf| player_tf.translation + Vec3::Y * enemy_motion.target_height);
 
     for (enemy_tf, ai, mut intent) in &mut enemies {
         let mut next = EnemyIntent::default();

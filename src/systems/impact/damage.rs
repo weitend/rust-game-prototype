@@ -1,9 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{
-    components::combat::Health,
-    systems::combat::DamageEvent,
-};
+use crate::{components::combat::Health, systems::combat::DamageEvent};
 
 #[derive(Message, Clone, Copy, Debug)]
 pub struct ImpactEvent {
@@ -37,4 +34,3 @@ fn route_damage(
         });
     }
 }
-

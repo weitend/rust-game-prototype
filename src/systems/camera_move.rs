@@ -4,7 +4,6 @@ use crate::{
     components::{
         aim_marker::AimMarker,
         follow_camera::FollowCamera,
-        intent::PlayerIntent,
         owner::OwnedBy,
         player::{LocalPlayer, Player},
         tank::{TankBarrel, TankBarrelState, TankParts, TankTurret},
@@ -22,7 +21,6 @@ pub fn camera_move_system(
     turret_q: Query<(&GlobalTransform, &OwnedBy), With<TankTurret>>,
     barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
     marker_q: Query<(&Transform, &Visibility), (With<AimMarker>, Without<FollowCamera>)>,
-    player_intent_q: Query<&PlayerIntent, With<Player>>,
     mut cam_q: Query<&mut Transform, (With<FollowCamera>, Without<Player>, Without<AimMarker>)>,
     aim_settings: Res<AimSettings>,
     tank_settings: Res<TankSettings>,
@@ -56,24 +54,28 @@ pub fn camera_move_system(
     } else {
         (player.rotation * -Vec3::Z, player.rotation * Vec3::X)
     };
-    let artillery_active = player_intent_q
-        .get(player_entity)
-        .map(|intent| intent.artillery_active)
+    let barrel_state = if let Ok((barrel_state, owned_by)) = barrel_q.get(tank_parts.barrel) {
+        if owned_by.entity != player_entity {
+            warn!(
+                "TankBarrel {:?} is owned by {:?}, expected {:?}",
+                tank_parts.barrel, owned_by.entity, player_entity
+            );
+            None
+        } else {
+            Some(barrel_state)
+        }
+    } else {
+        None
+    };
+    let artillery_active = barrel_state
+        .map(|state| state.artillery_mode_active)
         .unwrap_or(false);
 
     let (target_pos, look_target, smooth) = if artillery_active {
-        let pitch_t = if let Ok((barrel_state, owned_by)) = barrel_q.get(tank_parts.barrel) {
-            if owned_by.entity != player_entity {
-                warn!(
-                    "TankBarrel {:?} is owned by {:?}, expected {:?}",
-                    tank_parts.barrel, owned_by.entity, player_entity
-                );
-                0.0
-            } else {
-                let artillery_pitch_max = aim_settings.artillery_pitch_limit();
-                let denom = (artillery_pitch_max - aim_settings.artillery_pitch_min).max(0.0001);
-                ((barrel_state.pitch - aim_settings.artillery_pitch_min) / denom).clamp(0.0, 1.0)
-            }
+        let pitch_t = if let Some(barrel_state) = barrel_state {
+            let artillery_pitch_max = aim_settings.artillery_pitch_limit();
+            let denom = (artillery_pitch_max - aim_settings.artillery_pitch_min).max(0.0001);
+            ((barrel_state.pitch - aim_settings.artillery_pitch_min) / denom).clamp(0.0, 1.0)
         } else {
             0.0
         };

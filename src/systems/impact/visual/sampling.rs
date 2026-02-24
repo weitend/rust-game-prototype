@@ -3,7 +3,9 @@ use bevy::{math::Affine3A, prelude::*};
 use crate::{
     components::destructible_surface::DestructibleSurface,
     resources::impact_assets::ImpactAssets,
-    utils::impact_math::{marks_per_impact, normalized_or_up, sample_web_mark, web_radius_for_damage},
+    utils::impact_math::{
+        marks_per_impact, normalized_or_up, sample_web_mark, web_radius_for_damage,
+    },
 };
 
 #[derive(Clone, Copy)]
@@ -56,4 +58,3 @@ pub(super) fn collect_new_impact_samples(
 
     samples
 }
-

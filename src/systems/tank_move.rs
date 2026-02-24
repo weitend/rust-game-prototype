@@ -7,13 +7,13 @@ use crate::{
         player::{LocalPlayer, Player, PlayerControllerState},
         tank::TankHull,
     },
-    resources::{local_player::LocalPlayerContext, tank_settings::TankSettings},
+    resources::{local_player::LocalPlayerContext, player_motion_settings::PlayerMotionSettings},
     utils::local_player::resolve_local_player_entity,
 };
 
 pub fn tank_hull_move_system(
     time: Res<Time>,
-    settings: Res<TankSettings>,
+    settings: Res<PlayerMotionSettings>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     mut player_q: Query<

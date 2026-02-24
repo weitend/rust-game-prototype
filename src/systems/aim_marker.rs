@@ -4,10 +4,9 @@ use bevy_rapier3d::prelude::*;
 use crate::{
     components::{
         aim_marker::{AimMarker, ArtilleryVignette},
-        intent::PlayerIntent,
         owner::OwnedBy,
         player::{LocalPlayer, Player},
-        tank::{TankMuzzle, TankParts},
+        tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts},
         weapon::HitscanWeapon,
     },
     resources::{aim_settings::AimSettings, local_player::LocalPlayerContext},
@@ -21,8 +20,9 @@ pub fn update_aim_marker_system(
     mut marker_q: Query<(&mut Transform, &mut Visibility), With<AimMarker>>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    player_q: Query<(Entity, &TankParts, &HitscanWeapon, &PlayerIntent), With<Player>>,
+    player_q: Query<(Entity, &TankParts, &HitscanWeapon), With<Player>>,
     muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
+    barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
     rapier_context: ReadRapierContext,
     settings: Res<AimSettings>,
 ) {
@@ -34,7 +34,7 @@ pub fn update_aim_marker_system(
         *marker_visibility = Visibility::Hidden;
         return;
     };
-    let Ok((player_entity, tank_parts, weapon, intent)) = player_q.get(player_entity) else {
+    let Ok((player_entity, tank_parts, weapon)) = player_q.get(player_entity) else {
         *marker_visibility = Visibility::Hidden;
         return;
     };
@@ -50,6 +50,19 @@ pub fn update_aim_marker_system(
         *marker_visibility = Visibility::Hidden;
         return;
     };
+    let Ok((barrel_state, barrel_owner)) = barrel_q.get(tank_parts.barrel) else {
+        *marker_visibility = Visibility::Hidden;
+        return;
+    };
+    if barrel_owner.entity != player_entity {
+        warn!(
+            "TankBarrel {:?} is owned by {:?}, expected {:?}",
+            tank_parts.barrel, barrel_owner.entity, player_entity
+        );
+        *marker_visibility = Visibility::Hidden;
+        return;
+    };
+    let artillery_active = barrel_state.artillery_mode_active;
     let Ok(rapier_context) = rapier_context.single() else {
         *marker_visibility = Visibility::Hidden;
         return;
@@ -64,7 +77,7 @@ pub fn update_aim_marker_system(
         .exclude_collider(player_entity)
         .exclude_rigid_body(player_entity)
         .exclude_sensors();
-    let impact = if intent.artillery_active {
+    let impact = if artillery_active {
         predict_ballistic_impact(
             &rapier_context,
             ray_origin,
@@ -109,7 +122,8 @@ pub fn update_aim_marker_system(
 pub fn update_artillery_vignette_system(
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    player_intent_q: Query<&PlayerIntent, With<Player>>,
+    player_q: Query<(Entity, &TankParts), With<Player>>,
+    barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
     settings: Res<AimSettings>,
     mut vignette_q: Query<(&mut BorderColor, &mut BackgroundColor), With<ArtilleryVignette>>,
 ) {
@@ -118,8 +132,22 @@ pub fn update_artillery_vignette_system(
     };
 
     let artillery_active = resolve_local_player_entity(&local_player_ctx, &local_player_q)
-        .and_then(|player_entity| player_intent_q.get(player_entity).ok())
-        .map(|intent| intent.artillery_active)
+        .and_then(|player_entity| {
+            let Ok((player_entity, tank_parts)) = player_q.get(player_entity) else {
+                return None;
+            };
+            let Ok((barrel_state, owned_by)) = barrel_q.get(tank_parts.barrel) else {
+                return None;
+            };
+            if owned_by.entity != player_entity {
+                warn!(
+                    "TankBarrel {:?} is owned by {:?}, expected {:?}",
+                    tank_parts.barrel, owned_by.entity, player_entity
+                );
+                return None;
+            }
+            Some(barrel_state.artillery_mode_active)
+        })
         .unwrap_or(false);
     let alpha = if artillery_active {
         settings.vignette_alpha
