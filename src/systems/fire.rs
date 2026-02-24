@@ -14,7 +14,7 @@ use crate::{
         tracer_assets::TracerAssets,
     },
     systems::impact::ImpactEvent,
-    utils::ballistics::predict_ballistic_impact,
+    utils::{ballistics::predict_ballistic_impact, muzzle::muzzle_ray},
 };
 
 pub fn fire_system(
@@ -51,13 +51,9 @@ pub fn fire_system(
         return;
     };
 
-    let ray_origin = muzzle_tf.translation();
-    let (_, muzzle_rotation, _) = muzzle_tf.to_scale_rotation_translation();
-    let ray_dir = (muzzle_rotation * -Vec3::Z).normalize_or_zero();
-
-    if ray_dir == Vec3::ZERO {
+    let Some((ray_origin, ray_dir)) = muzzle_ray(muzzle_tf) else {
         return;
-    }
+    };
 
     let filter = QueryFilter::new()
         .exclude_collider(player_entity)

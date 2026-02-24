@@ -13,5 +13,17 @@ pub fn compute_muzzle(mesh: &Mesh, forward_padding: f32) -> Option<Vec3> {
 
     let muzzle_offset = center + forward_local * (front_extent + forward_padding + gap);
 
-    return Some(muzzle_offset);
+    Some(muzzle_offset)
+}
+
+pub fn muzzle_ray(muzzle_tf: &GlobalTransform) -> Option<(Vec3, Vec3)> {
+    let ray_origin = muzzle_tf.translation();
+    let (_, muzzle_rotation, _) = muzzle_tf.to_scale_rotation_translation();
+    let ray_dir = (muzzle_rotation * -Vec3::Z).normalize_or_zero();
+
+    if ray_dir == Vec3::ZERO {
+        None
+    } else {
+        Some((ray_origin, ray_dir))
+    }
 }

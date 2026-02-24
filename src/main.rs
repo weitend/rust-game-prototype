@@ -59,6 +59,7 @@ fn main() {
                 enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                 fire_system,
                 enemy_fire_system.run_if(on_timer(Duration::from_millis(50))),
+                route_impact_damage_system,
                 process_impact_system,
                 debris_chip_lifetime_system,
                 update_shot_tracer_system,

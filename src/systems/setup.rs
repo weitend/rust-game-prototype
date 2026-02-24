@@ -53,9 +53,9 @@ pub fn setup(
         weapon_damage: 25.0,
         weapon_range: 45.0,
     };
-    commands.insert_resource(player_template.clone());
-    commands.insert_resource(PlayerRespawnState::default());
     spawn_player_from_template(&mut commands, &player_template, &tank_settings);
+    commands.insert_resource(player_template);
+    commands.insert_resource(PlayerRespawnState::default());
 
     // Enemies
     let enemy_rows = 1;
