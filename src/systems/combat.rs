@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     components::combat::{Health, Team},
-    resources::combat_rules::{can_damage, CombatRules},
+    resources::combat_rules::{CombatRules, can_damage},
 };
 
 #[derive(Message, Clone, Copy, Debug)]

@@ -8,7 +8,10 @@ pub struct TankTurret;
 
 #[derive(Component, Default)]
 pub struct TankTurretState {
+    pub initialized: bool,
     pub yaw: f32,
+    pub yaw_target: f32,
+    pub yaw_velocity: f32,
 }
 
 #[derive(Component)]
@@ -16,7 +19,10 @@ pub struct TankBarrel;
 
 #[derive(Component, Default)]
 pub struct TankBarrelState {
+    pub initialized: bool,
     pub pitch: f32,
+    pub pitch_target: f32,
+    pub pitch_velocity: f32,
     pub artillery_mode_active: bool,
 }
 

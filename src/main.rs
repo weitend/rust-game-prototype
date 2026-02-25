@@ -23,7 +23,8 @@ use systems::tank_move::*;
 use crate::resources::{
     aim_settings::AimSettings, combat_rules::CombatRules,
     enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
-    player_motion_settings::PlayerMotionSettings, tank_settings::TankSettings,
+    player_motion_settings::PlayerMotionSettings, player_physics_settings::PlayerPhysicsSettings,
+    tank_settings::TankSettings,
 };
 
 mod components;
@@ -42,6 +43,7 @@ fn main() {
         .insert_resource(AimSettings::default())
         .insert_resource(LocalPlayerContext::default())
         .insert_resource(PlayerMotionSettings::default())
+        .insert_resource(PlayerPhysicsSettings::default())
         .insert_resource(TankSettings::default())
         .insert_resource(EnemyMotionSettings::default())
         .insert_resource(CombatRules::default())

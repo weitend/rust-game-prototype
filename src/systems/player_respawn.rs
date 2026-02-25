@@ -17,6 +17,7 @@ use crate::{
     },
     resources::{
         player_motion_settings::PlayerMotionSettings,
+        player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
         player_spawn::{PlayerRespawnState, PlayerTemplate},
     },
     systems::combat::DeathEvent,
@@ -27,6 +28,7 @@ pub fn spawn_player_from_template(
     commands: &mut Commands,
     template: &PlayerTemplate,
     motion_settings: &PlayerMotionSettings,
+    physics_settings: &PlayerPhysicsSettings,
 ) {
     let turret_local_offset = Vec3::new(0.0, 0.46, 0.0);
     let barrel_pivot_local_offset = Vec3::new(0.0, 0.09, -0.44);
@@ -58,7 +60,6 @@ pub fn spawn_player_from_template(
             template.collider_half_extents.y,
             template.collider_half_extents.z,
         ),
-        default_tank_controller(motion_settings),
         FireControl {
             cooldown: Timer::from_seconds(1.0 / template.shots_per_second, TimerMode::Repeating),
         },
@@ -67,6 +68,23 @@ pub fn spawn_player_from_template(
             range: template.weapon_range,
         },
     ));
+    match physics_settings.mode {
+        PlayerHullPhysicsMode::KinematicController => {
+            player_entity.insert(default_tank_controller(motion_settings));
+        }
+        PlayerHullPhysicsMode::DynamicForces => {
+            player_entity.insert((
+                RigidBody::Dynamic,
+                Velocity::zero(),
+                ExternalForce::default(),
+                Damping {
+                    linear_damping: physics_settings.dynamic_linear_damping,
+                    angular_damping: physics_settings.dynamic_angular_damping,
+                },
+                LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z,
+            ));
+        }
+    }
 
     let turret_entity = commands
         .spawn((
@@ -149,6 +167,7 @@ pub fn player_respawn_tick_system(
     mut respawn: ResMut<PlayerRespawnState>,
     template: Res<PlayerTemplate>,
     motion_settings: Res<PlayerMotionSettings>,
+    physics_settings: Res<PlayerPhysicsSettings>,
     player_query: Query<(), With<Player>>,
 ) {
     if player_query.single().is_ok() {
@@ -165,7 +184,12 @@ pub fn player_respawn_tick_system(
         return;
     }
 
-    spawn_player_from_template(&mut commands, &template, &motion_settings);
+    spawn_player_from_template(
+        &mut commands,
+        &template,
+        &motion_settings,
+        &physics_settings,
+    );
     respawn.pending = false;
 }
 

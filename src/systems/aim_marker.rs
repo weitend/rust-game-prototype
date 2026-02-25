@@ -99,11 +99,7 @@ pub fn update_aim_marker_system(
                 point: hit.point,
                 normal: {
                     let n = hit.normal.normalize_or_zero();
-                    if n == Vec3::ZERO {
-                        Vec3::Y
-                    } else {
-                        n
-                    }
+                    if n == Vec3::ZERO { Vec3::Y } else { n }
                 },
                 travel_distance: hit.time_of_impact.max(0.0),
             })
