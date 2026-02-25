@@ -6,5 +6,6 @@ pub mod local_player;
 pub mod player_motion_settings;
 pub mod player_physics_settings;
 pub mod player_spawn;
+pub mod run_mode;
 pub mod tank_settings;
 pub mod tracer_assets;

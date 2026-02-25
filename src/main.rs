@@ -1,90 +1,23 @@
-use std::time::Duration;
-
-use bevy::prelude::*;
-use bevy::time::common_conditions::on_timer;
-use bevy_rapier3d::plugin::NoUserData;
-use bevy_rapier3d::plugin::PhysicsSet;
-use bevy_rapier3d::plugin::RapierPhysicsPlugin;
-use plugins::polygon::PolygonPlugin;
-use systems::aim_marker::*;
-use systems::camera_move::*;
-use systems::combat::*;
-use systems::enemy_ai::*;
-use systems::fire::*;
-use systems::impact::*;
-use systems::intent::*;
-use systems::invariants::*;
-use systems::lock_cursor::*;
-use systems::player_respawn::*;
-use systems::setup::*;
-use systems::shot_tracer::*;
-use systems::tank_aim::*;
-use systems::tank_move::*;
-
-use crate::resources::{
-    aim_settings::AimSettings, combat_rules::CombatRules,
-    enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
-    player_motion_settings::PlayerMotionSettings, player_physics_settings::PlayerPhysicsSettings,
-    tank_settings::TankSettings,
-};
-
-mod components;
-mod plugins;
-mod resources;
-mod systems;
-mod utils;
+use rust_game::{RunMode, run_app};
 
 fn main() {
-    App::new()
-        .add_plugins((
-            DefaultPlugins,
-            RapierPhysicsPlugin::<NoUserData>::default(),
-            PolygonPlugin,
-        ))
-        .insert_resource(AimSettings::default())
-        .insert_resource(LocalPlayerContext::default())
-        .insert_resource(PlayerMotionSettings::default())
-        .insert_resource(PlayerPhysicsSettings::default())
-        .insert_resource(TankSettings::default())
-        .insert_resource(EnemyMotionSettings::default())
-        .insert_resource(CombatRules::default())
-        .add_message::<ImpactEvent>()
-        .add_message::<DamageEvent>()
-        .add_message::<DeathEvent>()
-        .add_systems(Startup, (setup, lock_cursor_system))
-        .add_systems(
-            Update,
-            (
-                resolve_local_player_context_system,
-                player_input_intent_system,
-                tank_hull_move_system,
-                tank_turret_yaw_system,
-                tank_barrel_pitch_system,
-                update_aim_marker_system,
-                update_artillery_vignette_system,
-                enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
-                enemy_intent_from_ai_system,
-                enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
-                fire_system,
-                enemy_fire_system.run_if(on_timer(Duration::from_millis(50))),
-                route_impact_damage_system,
-                process_impact_system,
-                debris_chip_lifetime_system,
-                update_shot_tracer_system,
-                apply_damage_system,
-                schedule_player_respawn_on_death_system,
-                handle_death_system,
-                player_respawn_tick_system,
-            )
-                .chain(),
-        )
-        .add_systems(
-            Update,
-            debug_validate_invariants_system.run_if(on_timer(Duration::from_secs(3))),
-        )
-        .add_systems(
-            PostUpdate,
-            (camera_move_system.after(PhysicsSet::Writeback),),
-        )
-        .run();
+    run_app(parse_run_mode_from_args());
+}
+
+fn parse_run_mode_from_args() -> RunMode {
+    let mut args = std::env::args().skip(1);
+
+    while let Some(arg) = args.next() {
+        if let Some(value) = arg.strip_prefix("--mode=") {
+            return RunMode::parse_cli_value(value).unwrap_or(RunMode::Client);
+        }
+        if arg == "--mode" {
+            if let Some(value) = args.next() {
+                return RunMode::parse_cli_value(&value).unwrap_or(RunMode::Client);
+            }
+            return RunMode::Client;
+        }
+    }
+
+    RunMode::Client
 }
