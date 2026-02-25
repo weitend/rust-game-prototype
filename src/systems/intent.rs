@@ -10,31 +10,37 @@ use crate::resources::{
 };
 use crate::utils::local_player::resolve_local_player_entity;
 
+pub fn resolve_local_player_context_system(
+    mut local_player_ctx: ResMut<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+) {
+    let mut local_players = local_player_q.iter();
+    local_player_ctx.entity = match (local_players.next(), local_players.next()) {
+        (Some(entity), None) => Some(entity),
+        _ => None,
+    };
+}
+
 pub fn player_input_intent_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
-    mut player_q: Query<(Entity, &mut PlayerIntent), (With<Player>, With<LocalPlayer>)>,
-    mut local_player_ctx: ResMut<LocalPlayerContext>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    mut player_q: Query<&mut PlayerIntent, With<Player>>,
 ) {
     let mut look_delta = Vec2::ZERO;
     for event in mouse_motion.read() {
         look_delta += event.delta;
     }
 
-    let mut player_iter = player_q.iter_mut();
-    let Some((player_entity, mut intent)) = player_iter.next() else {
-        local_player_ctx.entity = None;
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
         return;
     };
-    if player_iter.next().is_some() {
-        warn!(
-            "Expected exactly one LocalPlayer; found multiple, input intent skipped for this frame"
-        );
-        local_player_ctx.entity = None;
+    let Ok(mut intent) = player_q.get_mut(player_entity) else {
         return;
-    }
-    local_player_ctx.entity = Some(player_entity);
+    };
 
     intent.throttle = axis_pressed(&keyboard, KeyCode::KeyW, KeyCode::KeyS).clamp(-1.0, 1.0);
     intent.turn = axis_pressed(&keyboard, KeyCode::KeyA, KeyCode::KeyD).clamp(-1.0, 1.0);

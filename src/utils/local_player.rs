@@ -18,7 +18,6 @@ pub fn resolve_local_player_entity(
     let mut local_players = local_player_q.iter();
     let entity = local_players.next()?;
     if local_players.next().is_some() {
-        warn!("Expected exactly one LocalPlayer, found multiple; skipping frame");
         return None;
     }
 

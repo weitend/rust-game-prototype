@@ -47,7 +47,7 @@ pub fn camera_move_system(
             );
             (player.rotation * -Vec3::Z, player.rotation * Vec3::X)
         } else {
-            let aim_rotation = player.rotation * Quat::from_rotation_y(turret_state.yaw_target);
+            let aim_rotation = player.rotation * Quat::from_rotation_y(turret_state.yaw);
             (aim_rotation * -Vec3::Z, aim_rotation * Vec3::X)
         }
     } else {
@@ -74,7 +74,7 @@ pub fn camera_move_system(
         let artillery_pitch_max = aim_settings.artillery_pitch_limit();
         let denom = (artillery_pitch_max - aim_settings.artillery_pitch_min).max(0.0001);
         let pitch_t = if let Some(barrel_state) = barrel_state {
-            ((barrel_state.pitch_target - aim_settings.artillery_pitch_min) / denom).clamp(0.0, 1.0)
+            ((barrel_state.pitch - aim_settings.artillery_pitch_min) / denom).clamp(0.0, 1.0)
         } else {
             0.0
         };

@@ -110,3 +110,36 @@ pub fn predict_ballistic_impact(
 
     None
 }
+
+pub fn cast_hitscan_impact(
+    rapier_context: &RapierContext<'_>,
+    origin: Vec3,
+    direction: Vec3,
+    max_distance: f32,
+    filter: QueryFilter<'_>,
+) -> Option<BallisticImpact> {
+    if max_distance <= f32::EPSILON {
+        return None;
+    }
+
+    let dir = direction.normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return None;
+    }
+
+    rapier_context
+        .cast_ray_and_get_normal(origin, dir, max_distance, true, filter)
+        .map(|(target, hit)| {
+            let normal = hit.normal.normalize_or_zero();
+            BallisticImpact {
+                target,
+                point: hit.point,
+                normal: if normal == Vec3::ZERO {
+                    Vec3::Y
+                } else {
+                    normal
+                },
+                travel_distance: hit.time_of_impact.max(0.0),
+            }
+        })
+}

@@ -11,7 +11,8 @@ use crate::{
     },
     resources::{aim_settings::AimSettings, local_player::LocalPlayerContext},
     utils::{
-        ballistics::predict_ballistic_impact, local_player::resolve_local_player_entity,
+        ballistics::{cast_hitscan_impact, predict_ballistic_impact},
+        local_player::resolve_local_player_entity,
         muzzle::muzzle_ray,
     },
 };
@@ -86,23 +87,13 @@ pub fn update_aim_marker_system(
             filter,
         )
     } else {
-        rapier_context
-            .cast_ray_and_get_normal(
-                ray_origin,
-                ray_dir,
-                weapon.range.max(settings.range_fallback),
-                true,
-                filter,
-            )
-            .map(|(target, hit)| crate::utils::ballistics::BallisticImpact {
-                target,
-                point: hit.point,
-                normal: {
-                    let n = hit.normal.normalize_or_zero();
-                    if n == Vec3::ZERO { Vec3::Y } else { n }
-                },
-                travel_distance: hit.time_of_impact.max(0.0),
-            })
+        cast_hitscan_impact(
+            &rapier_context,
+            ray_origin,
+            ray_dir,
+            weapon.range.max(settings.range_fallback),
+            filter,
+        )
     };
 
     let Some(impact) = impact else {

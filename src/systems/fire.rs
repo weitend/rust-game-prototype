@@ -16,7 +16,8 @@ use crate::{
     },
     systems::impact::ImpactEvent,
     utils::{
-        ballistics::predict_ballistic_impact, local_player::resolve_local_player_entity,
+        ballistics::{cast_hitscan_impact, predict_ballistic_impact},
+        local_player::resolve_local_player_entity,
         muzzle::muzzle_ray,
     },
 };
@@ -112,19 +113,13 @@ pub fn fire_system(
             .max(0.0);
         (distance, ballistic)
     } else {
-        let ray_result =
-            rapier_context.cast_ray_and_get_normal(ray_origin, ray_dir, weapon.range, true, filter);
-        let distance = ray_result
-            .map(|(_, hit)| hit.time_of_impact)
+        let hitscan =
+            cast_hitscan_impact(&rapier_context, ray_origin, ray_dir, weapon.range, filter);
+        let distance = hitscan
+            .map(|hit| hit.travel_distance)
             .unwrap_or(weapon.range)
             .max(0.0);
-        let hit = ray_result.map(|(target, hit)| crate::utils::ballistics::BallisticImpact {
-            target,
-            point: hit.point,
-            normal: hit.normal,
-            travel_distance: hit.time_of_impact.max(0.0),
-        });
-        (distance, hit)
+        (distance, hitscan)
     };
 
     let tracer_speed = tracer_assets.speed.max(1.0);

@@ -13,6 +13,7 @@ use systems::enemy_ai::*;
 use systems::fire::*;
 use systems::impact::*;
 use systems::intent::*;
+use systems::invariants::*;
 use systems::lock_cursor::*;
 use systems::player_respawn::*;
 use systems::setup::*;
@@ -54,6 +55,7 @@ fn main() {
         .add_systems(
             Update,
             (
+                resolve_local_player_context_system,
                 player_input_intent_system,
                 tank_hull_move_system,
                 tank_turret_yaw_system,
@@ -75,6 +77,10 @@ fn main() {
                 player_respawn_tick_system,
             )
                 .chain(),
+        )
+        .add_systems(
+            Update,
+            debug_validate_invariants_system.run_if(on_timer(Duration::from_secs(3))),
         )
         .add_systems(
             PostUpdate,
