@@ -14,9 +14,16 @@ use bevy_rapier3d::prelude::{
 
 use crate::{
     components::{
+        combat::{Health, Team},
+        fire_control::FireControl,
         intent::PlayerIntent,
+        owner::OwnedBy,
         player::{LocalPlayer, Player, PlayerControllerState},
-        tank::TankHull,
+        tank::{
+            TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts, TankTurret,
+            TankTurretState,
+        },
+        weapon::HitscanWeapon,
     },
     network::protocol::{
         ClientInput, ClientPacket, EntitySnapshot, NetEntityId, PROTOCOL_VERSION, ServerPacket,
@@ -26,6 +33,7 @@ use crate::{
     resources::{
         player_motion_settings::PlayerMotionSettings,
         player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
+        player_spawn::PlayerTemplate,
     },
 };
 
@@ -152,9 +160,10 @@ struct HostLoopbackNonce(u64);
 #[derive(Resource, Default)]
 struct ClientSnapshotState {
     latest: Option<Snapshot>,
-    by_net_id: HashMap<NetEntityId, Entity>,
+    by_net_id: HashMap<NetEntityId, SnapshotReplicaEntities>,
     mesh: Option<Handle<Mesh>>,
     material: Option<Handle<StandardMaterial>>,
+    local_missing_streak: u32,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -164,6 +173,19 @@ struct NetworkControlledPlayer {
 
 #[derive(Component, Debug, Clone, Copy)]
 struct SnapshotReplica;
+
+#[derive(Component, Debug, Clone, Copy)]
+struct SnapshotReplicaTurret;
+
+#[derive(Component, Debug, Clone, Copy)]
+struct SnapshotReplicaBarrel;
+
+#[derive(Debug, Clone, Copy)]
+struct SnapshotReplicaEntities {
+    root: Entity,
+    turret: Option<Entity>,
+    barrel: Option<Entity>,
+}
 
 #[derive(Message, Debug, Clone)]
 pub enum NetLifecycleMessage {
@@ -456,7 +478,9 @@ fn server_receive_packets(
 fn server_send_snapshots(
     state: Option<ResMut<ServerNetState>>,
     time: Res<Time>,
-    transform_q: Query<&Transform>,
+    player_snapshot_q: Query<(&Transform, Option<&Health>, Option<&TankParts>)>,
+    turret_state_q: Query<&TankTurretState, With<TankTurret>>,
+    barrel_state_q: Query<&TankBarrelState, With<TankBarrel>>,
 ) {
     let Some(mut state) = state else {
         return;
@@ -472,13 +496,27 @@ fn server_send_snapshots(
         let Some(player_entity) = session.player_entity else {
             continue;
         };
-        let Ok(tf) = transform_q.get(player_entity) else {
+        let Ok((tf, health, tank_parts)) = player_snapshot_q.get(player_entity) else {
             continue;
         };
+        let (turret_yaw, barrel_pitch) = tank_parts
+            .and_then(|parts| {
+                let turret = turret_state_q.get(parts.turret).ok().map(|s| s.yaw);
+                let barrel = barrel_state_q.get(parts.barrel).ok().map(|s| s.pitch);
+                if turret.is_none() && barrel.is_none() {
+                    None
+                } else {
+                    Some((turret, barrel))
+                }
+            })
+            .unwrap_or((None, None));
         entities.push(EntitySnapshot {
             id: NetEntityId(session.id),
             position: [tf.translation.x, tf.translation.y, tf.translation.z],
             rotation: [tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w],
+            health: health.map(|h| [h.current, h.max]),
+            turret_yaw,
+            barrel_pitch,
         });
     }
 
@@ -675,6 +713,7 @@ fn client_receive_packets(
                         entities: Vec::new(),
                         events: Vec::new(),
                     });
+                    snapshot_state.local_missing_streak = 0;
                 }
             }
             ServerPacket::Snapshot(snapshot) => {
@@ -727,11 +766,38 @@ fn client_apply_latest_snapshot(
     run_mode: Res<AppRunMode>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
     client_state: Option<Res<ClientNetState>>,
-    mut replica_tf_q: Query<&mut Transform, (With<SnapshotReplica>, Without<LocalPlayer>)>,
-    mut local_player_tf_q: Query<
+    mut replica_tf_q: Query<
         &mut Transform,
+        (
+            With<SnapshotReplica>,
+            Without<LocalPlayer>,
+            Without<SnapshotReplicaTurret>,
+            Without<SnapshotReplicaBarrel>,
+        ),
+    >,
+    mut replica_turret_tf_q: Query<
+        &mut Transform,
+        (
+            With<SnapshotReplicaTurret>,
+            Without<SnapshotReplicaBarrel>,
+            Without<Player>,
+            Without<SnapshotReplica>,
+        ),
+    >,
+    mut replica_barrel_tf_q: Query<
+        &mut Transform,
+        (
+            With<SnapshotReplicaBarrel>,
+            Without<SnapshotReplicaTurret>,
+            Without<Player>,
+            Without<SnapshotReplica>,
+        ),
+    >,
+    mut local_player_q: Query<
+        (Entity, &mut Transform, Option<&mut Health>),
         (With<Player>, With<LocalPlayer>, Without<SnapshotReplica>),
     >,
+    player_template: Option<Res<PlayerTemplate>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
@@ -758,11 +824,13 @@ fn client_apply_latest_snapshot(
     };
 
     let mut seen_ids = HashSet::new();
+    let mut seen_local = false;
     let tick = snapshot.tick;
     for entity_snapshot in snapshot.entities {
         if local_session == Some(entity_snapshot.id.0) {
+            seen_local = true;
             if !matches!(run_mode.0, RunMode::Host)
-                && let Ok(mut local_tf) = local_player_tf_q.single_mut()
+                && let Ok((_, mut local_tf, maybe_health)) = local_player_q.single_mut()
             {
                 let server_translation = Vec3::new(
                     entity_snapshot.position[0],
@@ -771,6 +839,12 @@ fn client_apply_latest_snapshot(
                 );
                 let server_rotation = normalized_rotation(entity_snapshot.rotation);
                 reconcile_local_transform(&mut local_tf, server_translation, server_rotation);
+                if let (Some([current, max]), Some(mut health)) =
+                    (entity_snapshot.health, maybe_health)
+                {
+                    health.max = max.max(0.0);
+                    health.current = current.clamp(0.0, health.max);
+                }
             }
             continue;
         }
@@ -783,22 +857,36 @@ fn client_apply_latest_snapshot(
         );
         let next_rotation = normalized_rotation(entity_snapshot.rotation);
 
-        if let Some(entity) = snapshot_state.by_net_id.get(&entity_snapshot.id).copied() {
-            if let Ok(mut tf) = replica_tf_q.get_mut(entity) {
+        if let Some(replica) = snapshot_state.by_net_id.get(&entity_snapshot.id).copied() {
+            if let Ok(mut tf) = replica_tf_q.get_mut(replica.root) {
                 tf.translation = next_translation;
                 tf.rotation = next_rotation;
             }
+            if let (Some(turret_entity), Some(turret_yaw)) =
+                (replica.turret, entity_snapshot.turret_yaw)
+                && let Ok(mut turret_tf) = replica_turret_tf_q.get_mut(turret_entity)
+            {
+                turret_tf.rotation = Quat::from_rotation_y(turret_yaw);
+            }
+            if let (Some(barrel_entity), Some(barrel_pitch)) =
+                (replica.barrel, entity_snapshot.barrel_pitch)
+                && let Ok(mut barrel_tf) = replica_barrel_tf_q.get_mut(barrel_entity)
+            {
+                barrel_tf.rotation = Quat::from_rotation_x(barrel_pitch);
+            }
         } else {
-            let entity = commands
-                .spawn((
-                    Name::new(format!("NetReplica#{}", entity_snapshot.id.0)),
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material.clone()),
-                    Transform::from_translation(next_translation).with_rotation(next_rotation),
-                    SnapshotReplica,
-                ))
-                .id();
-            snapshot_state.by_net_id.insert(entity_snapshot.id, entity);
+            let replica = spawn_snapshot_replica(
+                &mut commands,
+                entity_snapshot.id,
+                next_translation,
+                next_rotation,
+                entity_snapshot.turret_yaw,
+                entity_snapshot.barrel_pitch,
+                player_template.as_deref(),
+                mesh.clone(),
+                material.clone(),
+            );
+            snapshot_state.by_net_id.insert(entity_snapshot.id, replica);
         }
     }
 
@@ -809,9 +897,27 @@ fn client_apply_latest_snapshot(
         .filter(|id| !seen_ids.contains(id))
         .collect();
     for stale_id in stale_ids {
-        if let Some(entity) = snapshot_state.by_net_id.remove(&stale_id) {
-            commands.entity(entity).despawn();
+        if let Some(replica) = snapshot_state.by_net_id.remove(&stale_id) {
+            commands.entity(replica.root).despawn_children().despawn();
         }
+    }
+
+    if !matches!(run_mode.0, RunMode::Host) && local_session.is_some() {
+        if seen_local {
+            snapshot_state.local_missing_streak = 0;
+        } else {
+            snapshot_state.local_missing_streak =
+                snapshot_state.local_missing_streak.saturating_add(1);
+            const LOCAL_DESPAWN_MISSING_SNAPSHOTS: u32 = 15;
+            if snapshot_state.local_missing_streak >= LOCAL_DESPAWN_MISSING_SNAPSHOTS
+                && let Ok((local_entity, _, _)) = local_player_q.single_mut()
+            {
+                commands.entity(local_entity).despawn_children().despawn();
+                snapshot_state.local_missing_streak = 0;
+            }
+        }
+    } else {
+        snapshot_state.local_missing_streak = 0;
     }
 
     if tick % 30 == 0 {
@@ -820,6 +926,86 @@ fn client_apply_latest_snapshot(
             tick,
             snapshot_state.by_net_id.len()
         );
+    }
+}
+
+fn spawn_snapshot_replica(
+    commands: &mut Commands,
+    net_id: NetEntityId,
+    translation: Vec3,
+    rotation: Quat,
+    turret_yaw: Option<f32>,
+    barrel_pitch: Option<f32>,
+    player_template: Option<&PlayerTemplate>,
+    fallback_mesh: Handle<Mesh>,
+    fallback_material: Handle<StandardMaterial>,
+) -> SnapshotReplicaEntities {
+    const TURRET_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.46, 0.0);
+    const BARREL_PIVOT_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.09, -0.44);
+    const BARREL_VISUAL_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.0, -0.63);
+
+    if let Some(template) = player_template {
+        let root = commands
+            .spawn((
+                Name::new(format!("NetReplica#{}", net_id.0)),
+                Mesh3d(template.mesh.clone()),
+                MeshMaterial3d(template.material.clone()),
+                Transform::from_translation(translation).with_rotation(rotation),
+                SnapshotReplica,
+            ))
+            .id();
+
+        let turret = commands
+            .spawn((
+                Name::new(format!("NetReplica#{}::Turret", net_id.0)),
+                Mesh3d(template.turret_mesh.clone()),
+                MeshMaterial3d(template.turret_material.clone()),
+                Transform::from_translation(TURRET_LOCAL_OFFSET)
+                    .with_rotation(Quat::from_rotation_y(turret_yaw.unwrap_or(0.0))),
+                SnapshotReplicaTurret,
+            ))
+            .id();
+        let barrel_pivot = commands
+            .spawn((
+                Name::new(format!("NetReplica#{}::BarrelPivot", net_id.0)),
+                Transform::from_translation(BARREL_PIVOT_LOCAL_OFFSET)
+                    .with_rotation(Quat::from_rotation_x(barrel_pitch.unwrap_or(0.0))),
+                Visibility::default(),
+                SnapshotReplicaBarrel,
+            ))
+            .id();
+        let barrel_visual = commands
+            .spawn((
+                Name::new(format!("NetReplica#{}::Barrel", net_id.0)),
+                Mesh3d(template.barrel_mesh.clone()),
+                MeshMaterial3d(template.barrel_material.clone()),
+                Transform::from_translation(BARREL_VISUAL_LOCAL_OFFSET),
+            ))
+            .id();
+
+        commands.entity(barrel_pivot).add_child(barrel_visual);
+        commands.entity(turret).add_child(barrel_pivot);
+        commands.entity(root).add_child(turret);
+        return SnapshotReplicaEntities {
+            root,
+            turret: Some(turret),
+            barrel: Some(barrel_pivot),
+        };
+    }
+
+    let root = commands
+        .spawn((
+            Name::new(format!("NetReplica#{}", net_id.0)),
+            Mesh3d(fallback_mesh),
+            MeshMaterial3d(fallback_material),
+            Transform::from_translation(translation).with_rotation(rotation),
+            SnapshotReplica,
+        ))
+        .id();
+    SnapshotReplicaEntities {
+        root,
+        turret: None,
+        barrel: None,
     }
 }
 
@@ -901,14 +1087,27 @@ fn spawn_network_controlled_player(
     physics_settings: &PlayerPhysicsSettings,
     session_id: u64,
 ) -> Entity {
+    const TURRET_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.46, 0.0);
+    const BARREL_PIVOT_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.09, -0.44);
+    const MUZZLE_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.0, -1.26);
+
     let spawn_x = ((session_id.saturating_sub(1)) as f32) * 3.5;
     let mut entity = commands.spawn((
         Name::new(format!("NetPlayer#{session_id}")),
         Transform::from_translation(Vec3::new(spawn_x, 0.9, 6.0)),
         Player,
         TankHull,
+        Team::Player,
+        Health::new(100.0),
         PlayerControllerState::default(),
         PlayerIntent::default(),
+        FireControl {
+            cooldown: Timer::from_seconds(1.0 / 5.0, TimerMode::Repeating),
+        },
+        HitscanWeapon {
+            damage: 25.0,
+            range: 45.0,
+        },
         NetworkControlledPlayer { session_id },
         Collider::cuboid(0.80, 0.37, 1.10),
     ));
@@ -932,6 +1131,43 @@ fn spawn_network_controlled_player(
     }
 
     let id = entity.id();
+    let turret = commands
+        .spawn((
+            Name::new(format!("NetPlayer#{session_id}::Turret")),
+            Transform::from_translation(TURRET_LOCAL_OFFSET),
+            OwnedBy { entity: id },
+            TankTurret,
+            TankTurretState::default(),
+        ))
+        .id();
+    let barrel = commands
+        .spawn((
+            Name::new(format!("NetPlayer#{session_id}::BarrelPivot")),
+            Transform::from_translation(BARREL_PIVOT_LOCAL_OFFSET),
+            Visibility::default(),
+            OwnedBy { entity: id },
+            TankBarrel,
+            TankBarrelState::default(),
+        ))
+        .id();
+    let muzzle = commands
+        .spawn((
+            Name::new(format!("NetPlayer#{session_id}::Muzzle")),
+            Transform::from_translation(MUZZLE_LOCAL_OFFSET),
+            Visibility::default(),
+            OwnedBy { entity: id },
+            TankMuzzle,
+        ))
+        .id();
+    commands.entity(barrel).add_child(muzzle);
+    commands.entity(turret).add_child(barrel);
+    commands.entity(id).add_child(turret);
+    commands.entity(id).insert(TankParts {
+        turret,
+        barrel,
+        muzzle,
+    });
+
     eprintln!(
         "[net-server] spawned network player: session_id={} entity={:?}",
         session_id, id

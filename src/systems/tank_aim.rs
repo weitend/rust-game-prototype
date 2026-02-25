@@ -8,7 +8,10 @@ use crate::{
         tank::{TankBarrel, TankBarrelState, TankParts, TankTurret, TankTurretState},
     },
     resources::{
-        aim_settings::AimSettings, local_player::LocalPlayerContext, tank_settings::TankSettings,
+        aim_settings::AimSettings,
+        local_player::LocalPlayerContext,
+        run_mode::{AppRunMode, RunMode},
+        tank_settings::TankSettings,
     },
     utils::local_player::resolve_local_player_entity,
 };
@@ -19,21 +22,128 @@ const ANGULAR_VEL_EPSILON: f32 = 1.0e-3;
 pub fn tank_turret_yaw_system(
     time: Res<Time>,
     settings: Res<TankSettings>,
+    run_mode: Res<AppRunMode>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    player_q: Query<(&PlayerIntent, &TankParts), With<Player>>,
+    mut player_q: Query<(Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>), With<Player>>,
     mut turret_q: Query<
         (&mut Transform, &mut TankTurretState, &OwnedBy),
         (With<TankTurret>, Without<Player>),
     >,
 ) {
+    let dt = time.delta_secs();
+
+    if matches!(run_mode.0, RunMode::Server | RunMode::Host) {
+        for (player_entity, mut intent, tank_parts, local_marker) in &mut player_q {
+            apply_turret_yaw_for_player(
+                player_entity,
+                &intent,
+                tank_parts,
+                dt,
+                &settings,
+                &mut turret_q,
+            );
+            if local_marker.is_none() {
+                intent.turret_yaw_delta = 0.0;
+            }
+        }
+        return;
+    }
+
     let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
     else {
         return;
     };
-    let Ok((intent, tank_parts)) = player_q.get(player_entity) else {
+    let Ok((_, intent, tank_parts, _)) = player_q.get(player_entity) else {
         return;
     };
+    apply_turret_yaw_for_player(
+        player_entity,
+        &intent,
+        tank_parts,
+        dt,
+        &settings,
+        &mut turret_q,
+    );
+}
+
+fn normalize_angle(angle: f32) -> f32 {
+    let tau = std::f32::consts::TAU;
+    (angle + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI
+}
+
+fn yaw_from_rotation(rotation: Quat) -> f32 {
+    let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
+    normalize_angle(yaw)
+}
+
+pub fn tank_barrel_pitch_system(
+    time: Res<Time>,
+    aim_settings: Res<AimSettings>,
+    settings: Res<TankSettings>,
+    run_mode: Res<AppRunMode>,
+    local_player_ctx: Res<LocalPlayerContext>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    mut player_q: Query<(Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>), With<Player>>,
+    mut barrel_q: Query<
+        (&mut Transform, &mut TankBarrelState, &OwnedBy),
+        (With<TankBarrel>, Without<Player>),
+    >,
+) {
+    let dt = time.delta_secs();
+
+    if matches!(run_mode.0, RunMode::Server | RunMode::Host) {
+        for (player_entity, mut intent, tank_parts, local_marker) in &mut player_q {
+            apply_barrel_pitch_for_player(
+                player_entity,
+                &intent,
+                tank_parts,
+                dt,
+                &settings,
+                &aim_settings,
+                &mut barrel_q,
+            );
+            if local_marker.is_none() {
+                intent.barrel_pitch_delta = 0.0;
+            }
+        }
+        return;
+    }
+
+    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
+    else {
+        return;
+    };
+    let Ok((_, intent, tank_parts, _)) = player_q.get(player_entity) else {
+        return;
+    };
+    apply_barrel_pitch_for_player(
+        player_entity,
+        &intent,
+        tank_parts,
+        dt,
+        &settings,
+        &aim_settings,
+        &mut barrel_q,
+    );
+}
+
+fn pitch_from_rotation(rotation: Quat) -> f32 {
+    let (_, pitch, _) = rotation.to_euler(EulerRot::YXZ);
+    pitch
+}
+
+fn apply_turret_yaw_for_player(
+    player_entity: Entity,
+    intent: &PlayerIntent,
+    tank_parts: &TankParts,
+    dt: f32,
+    settings: &TankSettings,
+    turret_q: &mut Query<
+        (&mut Transform, &mut TankTurretState, &OwnedBy),
+        (With<TankTurret>, Without<Player>),
+    >,
+) {
     let delta_x = intent.turret_yaw_delta;
 
     let Ok((mut turret_tf, mut turret_state, owned_by)) = turret_q.get_mut(tank_parts.turret)
@@ -60,7 +170,6 @@ pub fn tank_turret_yaw_system(
     turret_state.yaw_target = (turret_state.yaw_target + yaw_delta)
         .clamp(-settings.turret_yaw_limit, settings.turret_yaw_limit);
 
-    let dt = time.delta_secs();
     let yaw_error = turret_state.yaw_target - turret_state.yaw;
     let desired_velocity = (yaw_error * settings.turret_yaw_tracking_gain).clamp(
         -settings.turret_yaw_max_speed,
@@ -99,35 +208,18 @@ pub fn tank_turret_yaw_system(
     turret_tf.rotation = Quat::from_rotation_y(turret_state.yaw);
 }
 
-fn normalize_angle(angle: f32) -> f32 {
-    let tau = std::f32::consts::TAU;
-    (angle + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI
-}
-
-fn yaw_from_rotation(rotation: Quat) -> f32 {
-    let (yaw, _, _) = rotation.to_euler(EulerRot::YXZ);
-    normalize_angle(yaw)
-}
-
-pub fn tank_barrel_pitch_system(
-    time: Res<Time>,
-    aim_settings: Res<AimSettings>,
-    settings: Res<TankSettings>,
-    local_player_ctx: Res<LocalPlayerContext>,
-    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    player_q: Query<(&PlayerIntent, &TankParts), With<Player>>,
-    mut barrel_q: Query<
+fn apply_barrel_pitch_for_player(
+    player_entity: Entity,
+    intent: &PlayerIntent,
+    tank_parts: &TankParts,
+    dt: f32,
+    settings: &TankSettings,
+    aim_settings: &AimSettings,
+    barrel_q: &mut Query<
         (&mut Transform, &mut TankBarrelState, &OwnedBy),
         (With<TankBarrel>, Without<Player>),
     >,
 ) {
-    let Some(player_entity) = resolve_local_player_entity(&local_player_ctx, &local_player_q)
-    else {
-        return;
-    };
-    let Ok((intent, tank_parts)) = player_q.get(player_entity) else {
-        return;
-    };
     let delta_y = intent.barrel_pitch_delta;
 
     let Ok((mut barrel_tf, mut barrel_state, owned_by)) = barrel_q.get_mut(tank_parts.barrel)
@@ -165,7 +257,7 @@ pub fn tank_barrel_pitch_system(
         && barrel_state.pitch_target < pitch_min
         && delta_y.abs() <= f32::EPSILON
     {
-        let raise = aim_settings.artillery_auto_raise_speed * time.delta_secs();
+        let raise = aim_settings.artillery_auto_raise_speed * dt;
         barrel_state.pitch_target = (barrel_state.pitch_target + raise).min(pitch_min);
     } else if delta_y.abs() > f32::EPSILON {
         let pitch_delta = -delta_y * settings.barrel_pitch_sensitivity;
@@ -174,7 +266,6 @@ pub fn tank_barrel_pitch_system(
 
     barrel_state.pitch_target = barrel_state.pitch_target.clamp(pitch_min, pitch_max);
 
-    let dt = time.delta_secs();
     let pitch_error = barrel_state.pitch_target - barrel_state.pitch;
     let desired_velocity = (pitch_error * settings.barrel_pitch_tracking_gain).clamp(
         -settings.barrel_pitch_max_speed,
@@ -205,9 +296,4 @@ pub fn tank_barrel_pitch_system(
         barrel_state.pitch_velocity = 0.0;
     }
     barrel_tf.rotation = Quat::from_rotation_x(barrel_state.pitch);
-}
-
-fn pitch_from_rotation(rotation: Quat) -> f32 {
-    let (_, pitch, _) = rotation.to_euler(EulerRot::YXZ);
-    pitch
 }

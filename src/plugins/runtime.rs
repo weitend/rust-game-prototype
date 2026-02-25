@@ -53,14 +53,14 @@ impl Plugin for SimulationPlugin {
                     enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
                     enemy_intent_from_ai_system,
                     enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
-                    fire_system.run_if(is_client_like_mode),
+                    fire_system,
                     enemy_fire_system
                         .run_if(on_timer(Duration::from_millis(50)))
                         .run_if(is_client_like_mode),
-                    route_impact_damage_system,
-                    apply_damage_system,
+                    route_impact_damage_system.run_if(is_server_like_mode),
+                    apply_damage_system.run_if(is_server_like_mode),
                     schedule_player_respawn_on_death_system.run_if(is_client_like_mode),
-                    handle_death_system,
+                    handle_death_system.run_if(is_server_like_mode),
                     player_respawn_tick_system.run_if(is_client_like_mode),
                 )
                     .chain(),
@@ -97,6 +97,10 @@ impl Plugin for PresentationPlugin {
 
 fn is_client_like_mode(mode: Res<AppRunMode>) -> bool {
     matches!(mode.0, RunMode::Client | RunMode::Host)
+}
+
+fn is_server_like_mode(mode: Res<AppRunMode>) -> bool {
+    matches!(mode.0, RunMode::Server | RunMode::Host)
 }
 
 fn is_server_mode(mode: Res<AppRunMode>) -> bool {

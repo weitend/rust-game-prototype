@@ -10,7 +10,7 @@ pub struct CombatRules {
 impl Default for CombatRules {
     fn default() -> Self {
         Self {
-            friendly_fire: false,
+            friendly_fire: true,
         }
     }
 }

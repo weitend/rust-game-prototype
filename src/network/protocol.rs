@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NetEntityId(pub u64);
@@ -22,6 +22,9 @@ pub struct EntitySnapshot {
     pub id: NetEntityId,
     pub position: [f32; 3],
     pub rotation: [f32; 4],
+    pub health: Option<[f32; 2]>,
+    pub turret_yaw: Option<f32>,
+    pub barrel_pitch: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
