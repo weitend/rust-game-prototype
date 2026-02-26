@@ -81,6 +81,7 @@ impl AimSettings {
             step_secs: self.artillery_step_secs,
             max_steps: self.artillery_max_steps,
             max_distance: self.effective_range(weapon_range),
+            collision_radius: 0.0,
             downcast_distance: self.artillery_downcast_distance,
             min_safe_distance: self.artillery_min_safe_distance,
         }

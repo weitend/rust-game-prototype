@@ -10,6 +10,7 @@ pub mod intent;
 pub mod obstacle;
 pub mod owner;
 pub mod player;
+pub mod projectile;
 pub mod shoot_origin;
 pub mod shot_tracer;
 pub mod tank;

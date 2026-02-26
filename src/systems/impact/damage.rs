@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::{
     components::{combat::Health, owner::OwnedBy},
     systems::combat::DamageEvent,
+    utils::damage_target::resolve_damage_target,
 };
 
 #[derive(Message, Clone, Copy, Debug)]
@@ -31,17 +32,8 @@ fn route_damage(
     owned_targets: &Query<&OwnedBy>,
     damage_events: &mut MessageWriter<DamageEvent>,
 ) {
-    let resolved_target = if damageable_targets.contains(impact.target) {
-        Some(impact.target)
-    } else if let Ok(owner) = owned_targets.get(impact.target) {
-        damageable_targets
-            .contains(owner.entity)
-            .then_some(owner.entity)
-    } else {
-        None
-    };
-
-    let Some(target) = resolved_target else {
+    let Some(target) = resolve_damage_target(impact.target, damageable_targets, owned_targets)
+    else {
         return;
     };
 

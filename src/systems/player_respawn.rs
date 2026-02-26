@@ -13,7 +13,7 @@ use crate::{
             TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts, TankTurret,
             TankTurretState,
         },
-        weapon::HitscanWeapon,
+        weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
     resources::{
         player_motion_settings::PlayerMotionSettings,
@@ -67,6 +67,7 @@ pub fn spawn_player_from_template(
             damage: template.weapon_damage,
             range: template.weapon_range,
         },
+        ProjectileWeaponProfile::default(),
     ));
     match physics_settings.mode {
         PlayerHullPhysicsMode::KinematicController => {

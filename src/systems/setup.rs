@@ -1,17 +1,10 @@
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
         aim_marker::{AimMarker, ArtilleryVignette},
-        combat::{Health, Team},
-        enemy::{Enemy, EnemyAi, EnemyControllerState},
-        fire_control::FireControl,
         follow_camera::FollowCamera,
-        intent::EnemyIntent,
-        shoot_origin::ShootOrigin,
-        weapon::HitscanWeapon,
     },
     resources::{
         aim_settings::{AIM_MARKER_RENDER_LAYER, AimSettings},
@@ -22,7 +15,6 @@ use crate::{
         tracer_assets::TracerAssets,
     },
     systems::player_respawn::spawn_player_from_template,
-    utils::{collision_groups::enemy_collision_groups, muzzle::compute_muzzle},
 };
 
 pub fn setup(
@@ -33,8 +25,6 @@ pub fn setup(
     motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
 ) {
-    let muzzle_padding: f32 = 0.015;
-
     // Player
     let player_hull_mesh = meshes.add(Cuboid::new(1.6, 0.74, 2.2));
     let player_turret_mesh = meshes.add(Cuboid::new(1.05, 0.34, 1.05));
@@ -64,66 +54,6 @@ pub fn setup(
     );
     commands.insert_resource(player_template);
     commands.insert_resource(PlayerRespawnState::default());
-
-    // Enemies
-    let enemy_rows = 1;
-    let enemy_cols = 1;
-    let enemy_spacing_x = 3.6;
-    let enemy_spacing_z = 3.6;
-    let enemy_origin = Vec3::new(-7.2, 0.9, -22.0);
-    let enemy_sps = 2.0;
-    let enemy_material = materials.add(Color::srgb_u8(208, 64, 64));
-    let enemy_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-    let enemy_muzzle_offset = meshes
-        .get(&enemy_mesh)
-        .and_then(|mesh| compute_muzzle(mesh, muzzle_padding))
-        .unwrap_or(Vec3::ZERO);
-
-    for row in 0..enemy_rows {
-        for col in 0..enemy_cols {
-            let enemy_pos = enemy_origin
-                + Vec3::new(
-                    col as f32 * enemy_spacing_x,
-                    0.0,
-                    row as f32 * enemy_spacing_z,
-                );
-
-            commands.spawn((
-                Mesh3d(enemy_mesh.clone()),
-                MeshMaterial3d(enemy_material.clone()),
-                Transform::from_translation(enemy_pos),
-                Enemy,
-                Team::Enemy,
-                Health::new(100.0),
-                EnemyAi::new(30.0, 16.0),
-                EnemyControllerState::default(),
-                EnemyIntent::default(),
-                ShootOrigin {
-                    muzzle_offset: enemy_muzzle_offset,
-                },
-                enemy_collision_groups(),
-                Collider::cuboid(0.48, 0.5, 0.48),
-                KinematicCharacterController {
-                    offset: CharacterLength::Absolute(0.003),
-                    slide: true,
-                    apply_impulse_to_dynamic_bodies: false,
-                    filter_flags: QueryFilterFlags::EXCLUDE_DYNAMIC
-                        | QueryFilterFlags::EXCLUDE_SENSORS,
-                    // Cheaper controller for crowds of enemies.
-                    autostep: None,
-                    snap_to_ground: None,
-                    ..default()
-                },
-                FireControl {
-                    cooldown: Timer::from_seconds(1.0 / enemy_sps, TimerMode::Repeating),
-                },
-                HitscanWeapon {
-                    damage: 10.0,
-                    range: 35.0,
-                },
-            ));
-        }
-    }
 
     // Camera
     commands.spawn((

@@ -1,13 +1,10 @@
 use bevy::{input::mouse::MouseMotion, prelude::*};
 
 use crate::components::{
-    enemy::{Enemy, EnemyAi, EnemyAiState},
-    intent::{EnemyIntent, PlayerIntent},
+    intent::PlayerIntent,
     player::{LocalPlayer, Player},
 };
-use crate::resources::{
-    enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
-};
+use crate::resources::local_player::LocalPlayerContext;
 use crate::utils::local_player::resolve_local_player_entity;
 
 pub fn resolve_local_player_context_system(
@@ -49,42 +46,6 @@ pub fn player_input_intent_system(
     intent.fire_pressed = mouse_buttons.pressed(MouseButton::Left);
     intent.fire_just_pressed = mouse_buttons.just_pressed(MouseButton::Left);
     intent.artillery_active = mouse_buttons.pressed(MouseButton::Right);
-}
-
-pub fn enemy_intent_from_ai_system(
-    enemy_motion: Res<EnemyMotionSettings>,
-    local_player_ctx: Res<LocalPlayerContext>,
-    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    player_q: Query<&Transform, With<Player>>,
-    mut enemies: Query<(&Transform, &EnemyAi, &mut EnemyIntent), With<Enemy>>,
-) {
-    let player_aim_target = resolve_local_player_entity(&local_player_ctx, &local_player_q)
-        .and_then(|player_entity| player_q.get(player_entity).ok())
-        .map(|player_tf| player_tf.translation + Vec3::Y * enemy_motion.target_height);
-
-    for (enemy_tf, ai, mut intent) in &mut enemies {
-        let mut next = EnemyIntent::default();
-
-        let Some(aim_target) = player_aim_target else {
-            *intent = next;
-            continue;
-        };
-
-        let mut to_target = aim_target - enemy_tf.translation;
-        to_target.y = 0.0;
-        let look_dir = to_target.normalize_or_zero();
-        if look_dir != Vec3::ZERO {
-            next.look_yaw = Some(look_dir.x.atan2(-look_dir.z));
-        }
-
-        if ai.state == EnemyAiState::Chase {
-            next.move_dir = look_dir;
-        }
-        next.fire = ai.state == EnemyAiState::Attack;
-        next.aim_target = aim_target;
-
-        *intent = next;
-    }
 }
 
 fn axis_pressed(input: &ButtonInput<KeyCode>, positive: KeyCode, negative: KeyCode) -> f32 {

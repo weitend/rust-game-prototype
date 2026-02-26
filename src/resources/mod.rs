@@ -1,6 +1,5 @@
 pub mod aim_settings;
 pub mod combat_rules;
-pub mod enemy_motion_settings;
 pub mod impact_assets;
 pub mod local_player;
 pub mod player_motion_settings;

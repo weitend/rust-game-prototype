@@ -7,8 +7,7 @@ use plugins::polygon::PolygonPlugin;
 use plugins::runtime::{PresentationPlugin, SimulationPlugin};
 
 use crate::resources::{
-    aim_settings::AimSettings, combat_rules::CombatRules,
-    enemy_motion_settings::EnemyMotionSettings, local_player::LocalPlayerContext,
+    aim_settings::AimSettings, combat_rules::CombatRules, local_player::LocalPlayerContext,
     player_motion_settings::PlayerMotionSettings, player_physics_settings::PlayerPhysicsSettings,
     run_mode::AppRunMode, tank_settings::TankSettings,
 };
@@ -32,7 +31,6 @@ pub fn run_app(run_mode: RunMode) {
         .insert_resource(PlayerMotionSettings::default())
         .insert_resource(PlayerPhysicsSettings::default())
         .insert_resource(TankSettings::default())
-        .insert_resource(EnemyMotionSettings::default())
         .insert_resource(CombatRules::default());
 
     match run_mode {

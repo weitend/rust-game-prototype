@@ -10,19 +10,16 @@ use crate::{
         aim_marker::{update_aim_marker_system, update_artillery_vignette_system},
         camera_move::camera_move_system,
         combat::{DamageEvent, DeathEvent, apply_damage_system, handle_death_system},
-        enemy_ai::{enemy_ai_state_system, enemy_fire_system, enemy_move_system},
         fire::fire_system,
         impact::{
             ImpactEvent, debris_chip_lifetime_system, process_impact_system,
             route_impact_damage_system,
         },
-        intent::{
-            enemy_intent_from_ai_system, player_input_intent_system,
-            resolve_local_player_context_system,
-        },
+        intent::{player_input_intent_system, resolve_local_player_context_system},
         invariants::debug_validate_invariants_system,
         lock_cursor::lock_cursor_system,
         player_respawn::{player_respawn_tick_system, schedule_player_respawn_on_death_system},
+        projectile::projectile_step_system,
         setup::setup,
         shot_tracer::update_shot_tracer_system,
         tank_aim::{tank_barrel_pitch_system, tank_turret_yaw_system},
@@ -47,13 +44,8 @@ impl Plugin for SimulationPlugin {
                     tank_hull_move_system,
                     tank_turret_yaw_system,
                     tank_barrel_pitch_system,
-                    enemy_ai_state_system.run_if(on_timer(Duration::from_millis(120))),
-                    enemy_intent_from_ai_system,
-                    enemy_move_system.run_if(on_timer(Duration::from_millis(50))),
                     fire_system,
-                    enemy_fire_system
-                        .run_if(on_timer(Duration::from_millis(50)))
-                        .run_if(is_client_like_mode),
+                    projectile_step_system.run_if(is_server_like_mode),
                     route_impact_damage_system.run_if(is_server_like_mode),
                     apply_damage_system.run_if(is_server_like_mode),
                     schedule_player_respawn_on_death_system.run_if(is_client_like_mode),
@@ -74,7 +66,11 @@ impl Plugin for PresentationPlugin {
             .add_systems(
                 Update,
                 (
-                    update_aim_marker_system,
+                    update_aim_marker_system
+                        .after(tank_hull_move_system)
+                        .after(tank_turret_yaw_system)
+                        .after(tank_barrel_pitch_system)
+                        .after(fire_system),
                     update_artillery_vignette_system,
                     process_impact_system,
                     debris_chip_lifetime_system,

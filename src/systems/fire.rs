@@ -1,56 +1,51 @@
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::*;
 
 use crate::{
     components::{
         fire_control::FireControl,
         intent::PlayerIntent,
-        obstacle::Obstacle,
         owner::OwnedBy,
         player::{LocalPlayer, Player},
+        projectile::Projectile,
         shot_tracer::{ShotTracer, ShotTracerLifetime},
-        tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts},
-        weapon::HitscanWeapon,
+        tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts, TankTurret},
+        weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
     resources::{
         aim_settings::AimSettings,
         run_mode::{AppRunMode, RunMode},
         tracer_assets::TracerAssets,
     },
-    systems::impact::ImpactEvent,
-    utils::ballistics::{cast_hitscan_impact, predict_ballistic_impact},
-    utils::muzzle::muzzle_ray,
+    utils::{
+        muzzle::muzzle_ray_from_local_hierarchy,
+        weapon_ballistics::build_projectile_spawn_params,
+    },
 };
 
 pub fn fire_system(
     mut commands: Commands,
-    mut impact_events: MessageWriter<ImpactEvent>,
     run_mode: Res<AppRunMode>,
     mut player_q: Query<
         (
             Entity,
+            &Transform,
             &TankParts,
             &mut FireControl,
             &HitscanWeapon,
+            Option<&ProjectileWeaponProfile>,
             &PlayerIntent,
             Option<&LocalPlayer>,
         ),
         With<Player>,
     >,
-    muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
-    barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
-    obstacle_q: Query<(), With<Obstacle>>,
-    owned_by_q: Query<&OwnedBy>,
-    rapier_context: ReadRapierContext,
+    turret_q: Query<(&Transform, &OwnedBy), With<TankTurret>>,
+    barrel_q: Query<(&Transform, &TankBarrelState, &OwnedBy), With<TankBarrel>>,
+    muzzle_q: Query<(&Transform, &OwnedBy), With<TankMuzzle>>,
     tracer_assets: Option<Res<TracerAssets>>,
     aim_settings: Res<AimSettings>,
     time: Res<Time>,
 ) {
-    let Ok(rapier_context) = rapier_context.single() else {
-        return;
-    };
-
-    for (player_entity, tank_parts, mut fire_control, weapon, intent, local_marker) in &mut player_q
+    for (player_entity, player_tf, tank_parts, mut fire_control, weapon, projectile_profile, intent, local_marker) in &mut player_q
     {
         let simulate_fire = match run_mode.0 {
             RunMode::Client => local_marker.is_some(),
@@ -71,17 +66,17 @@ pub fn fire_system(
             continue;
         }
 
-        let Ok((muzzle_tf, owned_by)) = muzzle_q.get(tank_parts.muzzle) else {
+        let Ok((turret_tf, turret_owner)) = turret_q.get(tank_parts.turret) else {
             continue;
         };
-        if owned_by.entity != player_entity {
+        if turret_owner.entity != player_entity {
             warn!(
-                "TankMuzzle {:?} is owned by {:?}, expected {:?}",
-                tank_parts.muzzle, owned_by.entity, player_entity
+                "TankTurret {:?} is owned by {:?}, expected {:?}",
+                tank_parts.turret, turret_owner.entity, player_entity
             );
             continue;
-        };
-        let Ok((barrel_state, barrel_owner)) = barrel_q.get(tank_parts.barrel) else {
+        }
+        let Ok((barrel_tf, barrel_state, barrel_owner)) = barrel_q.get(tank_parts.barrel) else {
             continue;
         };
         if barrel_owner.entity != player_entity {
@@ -91,52 +86,42 @@ pub fn fire_system(
             );
             continue;
         };
+        let Ok((muzzle_tf, muzzle_owner)) = muzzle_q.get(tank_parts.muzzle) else {
+            continue;
+        };
+        if muzzle_owner.entity != player_entity {
+            warn!(
+                "TankMuzzle {:?} is owned by {:?}, expected {:?}",
+                tank_parts.muzzle, muzzle_owner.entity, player_entity
+            );
+            continue;
+        };
         let artillery_active = barrel_state.artillery_mode_active;
 
-        let Some((ray_origin, ray_dir)) = muzzle_ray(muzzle_tf) else {
+        let Some((ray_origin, ray_dir)) =
+            muzzle_ray_from_local_hierarchy(player_tf, turret_tf, barrel_tf, muzzle_tf)
+        else {
             continue;
         };
 
-        let mut filter = QueryFilter::new()
-            .exclude_collider(player_entity)
-            .exclude_rigid_body(player_entity);
-        if !matches!(run_mode.0, RunMode::Client) {
-            filter = filter.exclude_sensors();
-        }
-
-        let (travel_distance, impact) = if artillery_active {
-            let ballistic = predict_ballistic_impact(
-                &rapier_context,
-                ray_origin,
-                ray_dir,
-                aim_settings.artillery_ballistic_params(weapon.range),
-                filter,
-            );
-            let distance = ballistic
-                .map(|hit| hit.travel_distance)
-                .unwrap_or(aim_settings.effective_range(weapon.range))
-                .max(0.0);
-            (distance, ballistic)
-        } else {
-            let hitscan =
-                cast_hitscan_impact(&rapier_context, ray_origin, ray_dir, weapon.range, filter);
-            let distance = hitscan
-                .map(|hit| hit.travel_distance)
-                .unwrap_or(weapon.range)
-                .max(0.0);
-            (distance, hitscan)
-        };
+        let projectile_params = build_projectile_spawn_params(
+            weapon,
+            projectile_profile.copied().unwrap_or_default(),
+            artillery_active,
+            &aim_settings,
+        );
+        let projectile_speed = projectile_params.initial_speed.max(1.0);
+        let tracer_travel_distance = projectile_params.params.max_distance.max(0.0);
 
         if let Some(tracer_assets) = tracer_assets.as_ref() {
-            let tracer_speed = tracer_assets.speed.max(1.0);
-            let tracer_lifetime = (travel_distance / tracer_speed).max(0.01);
+            let tracer_lifetime = (tracer_travel_distance / projectile_speed).max(0.01);
 
             commands.spawn((
                 Mesh3d(tracer_assets.mesh.clone()),
                 MeshMaterial3d(tracer_assets.material.clone()),
                 Transform::from_translation(ray_origin),
                 ShotTracer {
-                    velocity: ray_dir * tracer_speed,
+                    velocity: ray_dir * projectile_speed,
                 },
                 ShotTracerLifetime {
                     timer: Timer::from_seconds(tracer_lifetime, TimerMode::Once),
@@ -144,58 +129,15 @@ pub fn fire_system(
             ));
         }
 
-        let Some(impact) = impact else {
-            if !matches!(run_mode.0, RunMode::Client) && intent.fire_just_pressed {
-                eprintln!(
-                    "[fire-auth] miss source={:?} origin=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2})",
-                    player_entity, ray_origin.x, ray_origin.y, ray_origin.z, ray_dir.x, ray_dir.y, ray_dir.z
-                );
-            }
-            continue;
-        };
-
-        if matches!(run_mode.0, RunMode::Client)
-            && is_obstacle_impact_target(impact.target, &obstacle_q, &owned_by_q)
-        {
-            continue;
-        }
-
-        impact_events.write(ImpactEvent {
-            source: Some(player_entity),
-            target: impact.target,
-            point: impact.point,
-            normal: impact.normal,
-            damage: weapon.damage,
-        });
-        if !matches!(run_mode.0, RunMode::Client) {
-            eprintln!(
-                "[fire-auth] source={:?} target={:?} damage={:.1} origin=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2}) artillery={}",
-                player_entity,
-                impact.target,
-                weapon.damage,
-                ray_origin.x,
-                ray_origin.y,
-                ray_origin.z,
-                ray_dir.x,
-                ray_dir.y,
-                ray_dir.z,
-                artillery_active
-            );
+        if matches!(run_mode.0, RunMode::Server | RunMode::Host) {
+            commands.spawn((
+                Transform::from_translation(ray_origin),
+                Projectile::with_params(
+                    Some(player_entity),
+                    projectile_params.params,
+                    ray_dir * projectile_speed,
+                ),
+            ));
         }
     }
-}
-
-fn is_obstacle_impact_target(
-    target: Entity,
-    obstacle_q: &Query<(), With<Obstacle>>,
-    owned_by_q: &Query<&OwnedBy>,
-) -> bool {
-    if obstacle_q.contains(target) {
-        return true;
-    }
-
-    owned_by_q
-        .get(target)
-        .ok()
-        .is_some_and(|owner| obstacle_q.contains(owner.entity))
 }
