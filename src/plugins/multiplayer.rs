@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -17,6 +17,7 @@ use crate::{
         combat::{Health, Team},
         fire_control::FireControl,
         intent::PlayerIntent,
+        obstacle::ObstacleNetId,
         owner::OwnedBy,
         player::{LocalPlayer, Player, PlayerControllerState},
         tank::{
@@ -35,6 +36,7 @@ use crate::{
         player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
         player_spawn::PlayerTemplate,
     },
+    systems::impact::ImpactEvent,
     systems::player_respawn::spawn_player_from_template,
     utils::collision_groups::player_collision_groups,
 };
@@ -138,6 +140,7 @@ struct ServerNetState {
     next_session_id: u64,
     tick_counter: u32,
     snapshot_tick: u32,
+    next_impact_seq: u32,
     snapshot_timer: Timer,
 }
 
@@ -178,6 +181,12 @@ struct ClientSnapshotState {
     material: Option<Handle<StandardMaterial>>,
 }
 
+#[derive(Resource, Default)]
+struct ClientImpactSyncState {
+    seen_seqs: HashSet<u32>,
+    seq_order: VecDeque<u32>,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 struct NetworkControlledPlayer {
     session_id: u64,
@@ -198,6 +207,8 @@ struct SnapshotReplicaEntities {
     turret: Option<Entity>,
     barrel: Option<Entity>,
 }
+
+const CLIENT_IMPACT_SEQ_WINDOW: usize = 4096;
 
 #[derive(Message, Debug, Clone)]
 pub enum NetLifecycleMessage {
@@ -236,6 +247,7 @@ fn setup_server_network(mut commands: Commands, config: Res<NetConfig>) {
                 next_session_id: 1,
                 tick_counter: 0,
                 snapshot_tick: 0,
+                next_impact_seq: 1,
                 snapshot_timer: Timer::from_seconds(
                     config.snapshot_interval_secs,
                     TimerMode::Repeating,
@@ -309,6 +321,7 @@ fn setup_client_network(mut commands: Commands, config: Res<NetConfig>, run_mode
         commands.insert_resource(HostLoopbackNonce(nonce));
     }
     commands.insert_resource(ClientSnapshotState::default());
+    commands.insert_resource(ClientImpactSyncState::default());
 }
 
 fn server_receive_packets(
@@ -582,9 +595,12 @@ fn server_respawn_missing_players(
 fn server_send_snapshots(
     state: Option<ResMut<ServerNetState>>,
     time: Res<Time>,
+    mut impact_events: MessageReader<ImpactEvent>,
     player_snapshot_q: Query<(&Transform, Option<&Health>, Option<&TankParts>)>,
     turret_state_q: Query<&TankTurretState, With<TankTurret>>,
     barrel_state_q: Query<&TankBarrelState, With<TankBarrel>>,
+    obstacle_id_q: Query<&ObstacleNetId>,
+    owned_by_q: Query<&OwnedBy>,
 ) {
     let Some(mut state) = state else {
         return;
@@ -597,6 +613,31 @@ fn server_send_snapshots(
 
     let mut entities = Vec::new();
     let mut events = Vec::new();
+    for impact in impact_events.read() {
+        let obstacle_id = obstacle_id_q
+            .get(impact.target)
+            .ok()
+            .copied()
+            .or_else(|| {
+                owned_by_q
+                    .get(impact.target)
+                    .ok()
+                    .and_then(|owner| obstacle_id_q.get(owner.entity).ok().copied())
+            });
+        let Some(obstacle_id) = obstacle_id else {
+            continue;
+        };
+
+        let impact_seq = state.next_impact_seq;
+        state.next_impact_seq = state.next_impact_seq.wrapping_add(1);
+        events.push(ServerEventDto::ObstacleImpact {
+            obstacle_id: obstacle_id.0,
+            point: [impact.point.x, impact.point.y, impact.point.z],
+            normal: [impact.normal.x, impact.normal.y, impact.normal.z],
+            damage: impact.damage,
+            impact_seq,
+        });
+    }
     for session in state.sessions.values_mut() {
         let net_id = NetEntityId(session.id);
         let Some(player_entity) = session.player_entity else {
@@ -761,12 +802,14 @@ fn client_send_packets(
 fn client_receive_packets(
     state: Option<ResMut<ClientNetState>>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
+    impact_sync_state: Option<ResMut<ClientImpactSyncState>>,
     mut lifecycle: MessageWriter<NetLifecycleMessage>,
 ) {
     let Some(mut state) = state else {
         return;
     };
     let mut snapshot_state = snapshot_state;
+    let mut impact_sync_state = impact_sync_state;
 
     let mut buffer = [0u8; 4096];
     loop {
@@ -834,6 +877,10 @@ fn client_receive_packets(
                         events: Vec::new(),
                     });
                 }
+                if let Some(impact_sync_state) = impact_sync_state.as_deref_mut() {
+                    impact_sync_state.seen_seqs.clear();
+                    impact_sync_state.seq_order.clear();
+                }
             }
             ServerPacket::Snapshot(snapshot) => {
                 if let Some(snapshot_state) = snapshot_state.as_deref_mut() {
@@ -882,11 +929,14 @@ fn log_lifecycle_messages(mut messages: MessageReader<NetLifecycleMessage>) {
 
 fn client_apply_latest_snapshot(
     mut commands: Commands,
+    mut impact_events: MessageWriter<ImpactEvent>,
     run_mode: Res<AppRunMode>,
     motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
     client_state: Option<Res<ClientNetState>>,
+    impact_sync_state: Option<ResMut<ClientImpactSyncState>>,
+    obstacle_q: Query<(Entity, &ObstacleNetId)>,
     mut transform_sets: ParamSet<(
         Query<
             'static,
@@ -986,6 +1036,11 @@ fn client_apply_latest_snapshot(
     let Some(material) = snapshot_state.material.clone() else {
         return;
     };
+    let mut impact_sync_state = impact_sync_state;
+    let obstacle_by_net_id: HashMap<u64, Entity> = obstacle_q
+        .iter()
+        .map(|(entity, obstacle_id)| (obstacle_id.0, entity))
+        .collect();
 
     let mut seen_ids = HashSet::new();
     for entity_snapshot in entities {
@@ -1125,6 +1180,31 @@ fn client_apply_latest_snapshot(
             }
             ServerEventDto::VehicleSpawned { .. } => {}
             ServerEventDto::SessionAnnounce { .. } => {}
+            ServerEventDto::ObstacleImpact {
+                obstacle_id,
+                point,
+                normal,
+                damage,
+                impact_seq,
+            } => {
+                if let Some(sync_state) = impact_sync_state.as_deref_mut()
+                    && !register_client_impact_seq(sync_state, impact_seq)
+                {
+                    continue;
+                }
+
+                let Some(target) = obstacle_by_net_id.get(&obstacle_id).copied() else {
+                    continue;
+                };
+
+                impact_events.write(ImpactEvent {
+                    source: None,
+                    target,
+                    point: Vec3::new(point[0], point[1], point[2]),
+                    normal: Vec3::new(normal[0], normal[1], normal[2]),
+                    damage,
+                });
+            }
         }
     }
 
@@ -1284,6 +1364,22 @@ fn blend_linear_angle(current: f32, target: f32, blend: f32, hard_snap_delta: f3
     } else {
         current + delta * blend.clamp(0.0, 1.0)
     }
+}
+
+fn register_client_impact_seq(state: &mut ClientImpactSyncState, seq: u32) -> bool {
+    if !state.seen_seqs.insert(seq) {
+        return false;
+    }
+    state.seq_order.push_back(seq);
+
+    while state.seq_order.len() > CLIENT_IMPACT_SEQ_WINDOW {
+        let Some(old_seq) = state.seq_order.pop_front() else {
+            break;
+        };
+        state.seen_seqs.remove(&old_seq);
+    }
+
+    true
 }
 
 fn server_log_controlled_players(

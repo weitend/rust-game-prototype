@@ -3,6 +3,7 @@ use bevy::transform::TransformPlugin;
 use bevy_rapier3d::plugin::NoUserData;
 use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use plugins::multiplayer::MultiplayerPlugin;
+use plugins::polygon::PolygonPlugin;
 use plugins::runtime::{PresentationPlugin, SimulationPlugin};
 
 use crate::resources::{
@@ -49,6 +50,9 @@ pub fn run_app(run_mode: RunMode) {
 
     app.add_plugins(SimulationPlugin);
     app.add_plugins(MultiplayerPlugin);
+    if matches!(run_mode, RunMode::Server) {
+        app.add_plugins(PolygonPlugin);
+    }
     if matches!(run_mode, RunMode::Client | RunMode::Host) {
         app.add_plugins(PresentationPlugin);
     }

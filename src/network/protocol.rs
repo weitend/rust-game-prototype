@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NetEntityId(pub u64);
@@ -32,6 +32,13 @@ pub enum ServerEventDto {
     SessionAnnounce { text: String },
     VehicleSpawned { id: NetEntityId },
     VehicleDespawned { id: NetEntityId },
+    ObstacleImpact {
+        obstacle_id: u64,
+        point: [f32; 3],
+        normal: [f32; 3],
+        damage: f32,
+        impact_seq: u32,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

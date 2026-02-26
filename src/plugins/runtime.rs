@@ -3,7 +3,6 @@ use std::time::Duration;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy_rapier3d::plugin::PhysicsSet;
-use bevy_rapier3d::prelude::{Collider, CollisionGroups, Friction, Group, RigidBody};
 
 use crate::{
     resources::run_mode::{AppRunMode, RunMode},
@@ -29,10 +28,9 @@ use crate::{
         tank_aim::{tank_barrel_pitch_system, tank_turret_yaw_system},
         tank_move::tank_hull_move_system,
     },
-    utils::collision_groups::GROUP_WORLD,
 };
 
-use super::polygon::{PolygonConfig, PolygonPlugin};
+use super::polygon::PolygonPlugin;
 
 pub struct SimulationPlugin;
 
@@ -41,7 +39,6 @@ impl Plugin for SimulationPlugin {
         app.add_message::<ImpactEvent>()
             .add_message::<DamageEvent>()
             .add_message::<DeathEvent>()
-            .add_systems(Startup, setup_server_ground_system.run_if(is_server_mode))
             .add_systems(
                 Update,
                 (
@@ -101,22 +98,4 @@ fn is_client_like_mode(mode: Res<AppRunMode>) -> bool {
 
 fn is_server_like_mode(mode: Res<AppRunMode>) -> bool {
     matches!(mode.0, RunMode::Server | RunMode::Host)
-}
-
-fn is_server_mode(mode: Res<AppRunMode>) -> bool {
-    matches!(mode.0, RunMode::Server)
-}
-
-fn setup_server_ground_system(mut commands: Commands) {
-    let config = PolygonConfig::default().sanitized();
-    let size = config.platform_size();
-
-    commands.spawn((
-        Name::new("ServerGround"),
-        Transform::from_xyz(0.0, -0.5 * size.y, 0.0),
-        RigidBody::Fixed,
-        Collider::cuboid(0.5 * size.x, 0.5 * size.y, 0.5 * size.z),
-        CollisionGroups::new(GROUP_WORLD, Group::ALL),
-        Friction::coefficient(0.0),
-    ));
 }

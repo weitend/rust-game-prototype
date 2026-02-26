@@ -6,6 +6,8 @@ use bevy::{
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
 };
 
+use crate::components::obstacle::{Obstacle, ObstacleNetId};
+
 use super::{
     config::PolygonConfig,
     layout::{SectionKind, SectionLayout},
@@ -29,7 +31,8 @@ pub fn setup_polygon_system(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    asset_server: Res<AssetServer>,
+    asset_server: Option<Res<AssetServer>>,
+    fonts: Option<Res<Assets<Font>>>,
     config: Res<PolygonConfig>,
 ) {
     let config = config.sanitized();
@@ -154,15 +157,45 @@ pub fn setup_polygon_system(
         );
     }
 
-    let teleport_font = asset_server.load("fonts/arial_unicode.ttf");
-    spawn_teleport_network(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        &teleport_font,
-        &config,
-        &layout,
-    );
+    if let (Some(asset_server), Some(_)) = (asset_server, fonts) {
+        let teleport_font = asset_server.load("fonts/arial_unicode.ttf");
+        spawn_teleport_network(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &teleport_font,
+            &config,
+            &layout,
+        );
+    }
+}
+
+pub fn assign_obstacle_net_ids_system(
+    mut commands: Commands,
+    obstacles: Query<(Entity, &Transform), (With<Obstacle>, Without<ObstacleNetId>)>,
+) {
+    let mut entries: Vec<(Entity, Vec3)> = obstacles
+        .iter()
+        .map(|(entity, transform)| (entity, transform.translation))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+
+    entries.sort_by(|(left_entity, left_pos), (right_entity, right_pos)| {
+        left_pos
+            .x
+            .total_cmp(&right_pos.x)
+            .then(left_pos.z.total_cmp(&right_pos.z))
+            .then(left_pos.y.total_cmp(&right_pos.y))
+            .then(left_entity.index().cmp(&right_entity.index()))
+    });
+
+    for (idx, (entity, _)) in entries.into_iter().enumerate() {
+        commands
+            .entity(entity)
+            .insert(ObstacleNetId(idx as u64 + 1));
+    }
 }
 
 fn create_checker_platform_material(

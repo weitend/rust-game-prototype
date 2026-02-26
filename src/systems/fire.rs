@@ -5,6 +5,7 @@ use crate::{
     components::{
         fire_control::FireControl,
         intent::PlayerIntent,
+        obstacle::Obstacle,
         owner::OwnedBy,
         player::{LocalPlayer, Player},
         shot_tracer::{ShotTracer, ShotTracerLifetime},
@@ -38,6 +39,8 @@ pub fn fire_system(
     >,
     muzzle_q: Query<(&GlobalTransform, &OwnedBy), With<TankMuzzle>>,
     barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
+    obstacle_q: Query<(), With<Obstacle>>,
+    owned_by_q: Query<&OwnedBy>,
     rapier_context: ReadRapierContext,
     tracer_assets: Option<Res<TracerAssets>>,
     aim_settings: Res<AimSettings>,
@@ -151,6 +154,12 @@ pub fn fire_system(
             continue;
         };
 
+        if matches!(run_mode.0, RunMode::Client)
+            && is_obstacle_impact_target(impact.target, &obstacle_q, &owned_by_q)
+        {
+            continue;
+        }
+
         impact_events.write(ImpactEvent {
             source: Some(player_entity),
             target: impact.target,
@@ -174,4 +183,19 @@ pub fn fire_system(
             );
         }
     }
+}
+
+fn is_obstacle_impact_target(
+    target: Entity,
+    obstacle_q: &Query<(), With<Obstacle>>,
+    owned_by_q: &Query<&OwnedBy>,
+) -> bool {
+    if obstacle_q.contains(target) {
+        return true;
+    }
+
+    owned_by_q
+        .get(target)
+        .ok()
+        .is_some_and(|owner| obstacle_q.contains(owner.entity))
 }
