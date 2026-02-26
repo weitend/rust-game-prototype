@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::transform::TransformPlugin;
 use bevy_rapier3d::plugin::NoUserData;
 use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use plugins::multiplayer::MultiplayerPlugin;
@@ -35,7 +36,11 @@ pub fn run_app(run_mode: RunMode) {
 
     match run_mode {
         RunMode::Server => {
-            app.add_plugins((MinimalPlugins, RapierPhysicsPlugin::<NoUserData>::default()));
+            app.add_plugins((
+                MinimalPlugins,
+                TransformPlugin,
+                RapierPhysicsPlugin::<NoUserData>::default(),
+            ));
         }
         RunMode::Client | RunMode::Host => {
             app.add_plugins((DefaultPlugins, RapierPhysicsPlugin::<NoUserData>::default()));

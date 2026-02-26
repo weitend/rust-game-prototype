@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use bevy_rapier3d::prelude::{
     CharacterAutostep, CharacterLength, Collider, Damping, ExternalForce,
-    KinematicCharacterController, LockedAxes, RigidBody, Velocity,
+    KinematicCharacterController, LockedAxes, RigidBody, Sensor, Velocity,
 };
 
 use crate::{
@@ -26,8 +26,8 @@ use crate::{
         weapon::HitscanWeapon,
     },
     network::protocol::{
-        ClientInput, ClientPacket, EntitySnapshot, NetEntityId, PROTOCOL_VERSION, ServerPacket,
-        Snapshot,
+        ClientInput, ClientPacket, EntitySnapshot, NetEntityId, PROTOCOL_VERSION, ServerEventDto,
+        ServerPacket, Snapshot,
     },
     resources::run_mode::{AppRunMode, RunMode},
     resources::{
@@ -35,6 +35,8 @@ use crate::{
         player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
         player_spawn::PlayerTemplate,
     },
+    systems::player_respawn::spawn_player_from_template,
+    utils::collision_groups::player_collision_groups,
 };
 
 pub struct MultiplayerPlugin;
@@ -49,8 +51,16 @@ impl Plugin for MultiplayerPlugin {
                 Update,
                 (
                     server_receive_packets.run_if(is_server_like_mode),
-                    server_prune_stale_sessions.run_if(is_server_like_mode),
-                    server_send_snapshots.run_if(is_server_like_mode),
+                    server_prune_stale_sessions
+                        .run_if(is_server_like_mode)
+                        .after(server_receive_packets),
+                    server_respawn_missing_players
+                        .run_if(is_server_like_mode)
+                        .after(server_prune_stale_sessions),
+                    server_send_snapshots
+                        .run_if(is_server_like_mode)
+                        .after(server_respawn_missing_players)
+                        .after(server_prune_stale_sessions),
                     server_log_controlled_players
                         .run_if(is_server_like_mode)
                         .run_if(on_timer(Duration::from_secs(1))),
@@ -137,6 +147,9 @@ struct ServerSession {
     last_seen_secs: f64,
     player_entity: Option<Entity>,
     last_input_seq: Option<u32>,
+    was_present_last_snapshot: bool,
+    respawn_deadline_secs: Option<f64>,
+    is_host_local: bool,
 }
 
 #[derive(Resource)]
@@ -163,7 +176,6 @@ struct ClientSnapshotState {
     by_net_id: HashMap<NetEntityId, SnapshotReplicaEntities>,
     mesh: Option<Handle<Mesh>>,
     material: Option<Handle<StandardMaterial>>,
-    local_missing_streak: u32,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -390,6 +402,9 @@ fn server_receive_packets(
                             last_seen_secs: now_secs,
                             player_entity: Some(player_entity),
                             last_input_seq: None,
+                            was_present_last_snapshot: false,
+                            respawn_deadline_secs: None,
+                            is_host_local: bind_to_host_local,
                         },
                     );
                     (session_id, true)
@@ -457,6 +472,8 @@ fn server_receive_packets(
                             session.id,
                         );
                         session.player_entity = Some(entity);
+                        session.was_present_last_snapshot = false;
+                        session.respawn_deadline_secs = None;
                         entity
                     };
 
@@ -464,14 +481,101 @@ fn server_receive_packets(
                         *intent = player_intent_from_client_input(&input);
                         if input.seq % 20 == 0 || input.fire_just_pressed {
                             eprintln!(
-                                "[net-server] input applied: session_id={} entity={:?} seq={} throttle={:.2} turn={:.2}",
-                                session.id, player_entity, input.seq, input.throttle, input.turn
+                                "[net-server] input applied: session_id={} entity={:?} seq={} throttle={:.2} turn={:.2} yaw_d={:.4} pitch_d={:.4} artillery={} fire_pressed={} fire_just_pressed={}",
+                                session.id,
+                                player_entity,
+                                input.seq,
+                                input.throttle,
+                                input.turn,
+                                input.turret_yaw_delta,
+                                input.barrel_pitch_delta,
+                                input.artillery_active,
+                                input.fire_pressed,
+                                input.fire_just_pressed
                             );
                         }
                     }
                 }
             }
         }
+    }
+}
+
+fn server_respawn_missing_players(
+    mut commands: Commands,
+    state: Option<ResMut<ServerNetState>>,
+    time: Res<Time>,
+    run_mode: Res<AppRunMode>,
+    motion_settings: Res<PlayerMotionSettings>,
+    physics_settings: Res<PlayerPhysicsSettings>,
+    local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    network_player_q: Query<(), With<NetworkControlledPlayer>>,
+) {
+    let Some(mut state) = state else {
+        return;
+    };
+
+    const RESPAWN_DELAY_SECS: f64 = 2.5;
+    let now_secs = time.elapsed_secs_f64();
+    let mut reserved_local_players = HashSet::new();
+    if matches!(run_mode.0, RunMode::Host) {
+        for session in state.sessions.values() {
+            if let Some(entity) = session.player_entity
+                && local_player_q.get(entity).is_ok()
+            {
+                reserved_local_players.insert(entity);
+            }
+        }
+    }
+
+    for session in state.sessions.values_mut() {
+        let is_alive = session.player_entity.is_some_and(|entity| {
+            network_player_q.get(entity).is_ok() || local_player_q.get(entity).is_ok()
+        });
+        if is_alive {
+            session.respawn_deadline_secs = None;
+            continue;
+        }
+
+        if matches!(run_mode.0, RunMode::Host) && session.is_host_local {
+            if let Some(local_entity) =
+                find_unbound_local_player(&local_player_q, &reserved_local_players)
+            {
+                session.player_entity = Some(local_entity);
+                session.was_present_last_snapshot = false;
+                session.respawn_deadline_secs = None;
+                reserved_local_players.insert(local_entity);
+                continue;
+            }
+        }
+
+        let respawn_deadline = *session
+            .respawn_deadline_secs
+            .get_or_insert(now_secs + RESPAWN_DELAY_SECS);
+        if now_secs < respawn_deadline {
+            continue;
+        }
+
+        let preferred_host_local = if matches!(run_mode.0, RunMode::Host) && session.is_host_local {
+            find_unbound_local_player(&local_player_q, &reserved_local_players)
+        } else {
+            None
+        };
+        if let Some(local_entity) = preferred_host_local {
+            reserved_local_players.insert(local_entity);
+        }
+
+        let player_entity = assign_player_entity_for_session(
+            &mut commands,
+            &run_mode,
+            preferred_host_local,
+            &motion_settings,
+            &physics_settings,
+            session.id,
+        );
+        session.player_entity = Some(player_entity);
+        session.was_present_last_snapshot = false;
+        session.respawn_deadline_secs = None;
     }
 }
 
@@ -492,13 +596,29 @@ fn server_send_snapshots(
     }
 
     let mut entities = Vec::new();
-    for session in state.sessions.values() {
+    let mut events = Vec::new();
+    for session in state.sessions.values_mut() {
+        let net_id = NetEntityId(session.id);
         let Some(player_entity) = session.player_entity else {
+            if session.was_present_last_snapshot {
+                events.push(ServerEventDto::VehicleDespawned { id: net_id });
+            }
+            session.was_present_last_snapshot = false;
             continue;
         };
         let Ok((tf, health, tank_parts)) = player_snapshot_q.get(player_entity) else {
+            if session.was_present_last_snapshot {
+                events.push(ServerEventDto::VehicleDespawned { id: net_id });
+            }
+            session.was_present_last_snapshot = false;
             continue;
         };
+
+        if !session.was_present_last_snapshot {
+            events.push(ServerEventDto::VehicleSpawned { id: net_id });
+        }
+        session.was_present_last_snapshot = true;
+
         let (turret_yaw, barrel_pitch) = tank_parts
             .and_then(|parts| {
                 let turret = turret_state_q.get(parts.turret).ok().map(|s| s.yaw);
@@ -511,7 +631,7 @@ fn server_send_snapshots(
             })
             .unwrap_or((None, None));
         entities.push(EntitySnapshot {
-            id: NetEntityId(session.id),
+            id: net_id,
             position: [tf.translation.x, tf.translation.y, tf.translation.z],
             rotation: [tf.rotation.x, tf.rotation.y, tf.rotation.z, tf.rotation.w],
             health: health.map(|h| [h.current, h.max]),
@@ -524,7 +644,7 @@ fn server_send_snapshots(
     let snapshot = Snapshot {
         tick: state.snapshot_tick,
         entities,
-        events: Vec::new(),
+        events,
     };
     let addrs: Vec<SocketAddr> = state.sessions.keys().copied().collect();
     for addr in addrs {
@@ -713,7 +833,6 @@ fn client_receive_packets(
                         entities: Vec::new(),
                         events: Vec::new(),
                     });
-                    snapshot_state.local_missing_streak = 0;
                 }
             }
             ServerPacket::Snapshot(snapshot) => {
@@ -764,38 +883,78 @@ fn log_lifecycle_messages(mut messages: MessageReader<NetLifecycleMessage>) {
 fn client_apply_latest_snapshot(
     mut commands: Commands,
     run_mode: Res<AppRunMode>,
+    motion_settings: Res<PlayerMotionSettings>,
+    physics_settings: Res<PlayerPhysicsSettings>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
     client_state: Option<Res<ClientNetState>>,
-    mut replica_tf_q: Query<
-        &mut Transform,
-        (
-            With<SnapshotReplica>,
-            Without<LocalPlayer>,
-            Without<SnapshotReplicaTurret>,
-            Without<SnapshotReplicaBarrel>,
-        ),
-    >,
-    mut replica_turret_tf_q: Query<
-        &mut Transform,
-        (
-            With<SnapshotReplicaTurret>,
-            Without<SnapshotReplicaBarrel>,
-            Without<Player>,
-            Without<SnapshotReplica>,
-        ),
-    >,
-    mut replica_barrel_tf_q: Query<
-        &mut Transform,
-        (
-            With<SnapshotReplicaBarrel>,
-            Without<SnapshotReplicaTurret>,
-            Without<Player>,
-            Without<SnapshotReplica>,
-        ),
-    >,
+    mut transform_sets: ParamSet<(
+        Query<
+            'static,
+            'static,
+            &mut Transform,
+            (
+                With<SnapshotReplica>,
+                Without<LocalPlayer>,
+                Without<SnapshotReplicaTurret>,
+                Without<SnapshotReplicaBarrel>,
+            ),
+        >,
+        Query<
+            'static,
+            'static,
+            &mut Transform,
+            (
+                With<SnapshotReplicaTurret>,
+                Without<SnapshotReplicaBarrel>,
+                Without<Player>,
+                Without<SnapshotReplica>,
+            ),
+        >,
+        Query<
+            'static,
+            'static,
+            &mut Transform,
+            (
+                With<SnapshotReplicaBarrel>,
+                Without<SnapshotReplicaTurret>,
+                Without<Player>,
+                Without<SnapshotReplica>,
+            ),
+        >,
+        Query<
+            'static,
+            'static,
+            (&'static mut Transform, &'static mut TankTurretState, &'static OwnedBy),
+            (
+                With<TankTurret>,
+                Without<Player>,
+                Without<SnapshotReplica>,
+                Without<SnapshotReplicaTurret>,
+                Without<SnapshotReplicaBarrel>,
+            ),
+        >,
+        Query<
+            'static,
+            'static,
+            (&'static mut Transform, &'static mut TankBarrelState, &'static OwnedBy),
+            (
+                With<TankBarrel>,
+                Without<Player>,
+                Without<SnapshotReplica>,
+                Without<SnapshotReplicaTurret>,
+                Without<SnapshotReplicaBarrel>,
+            ),
+        >,
+    )>,
     mut local_player_q: Query<
-        (Entity, &mut Transform, Option<&mut Health>),
-        (With<Player>, With<LocalPlayer>, Without<SnapshotReplica>),
+        (Entity, &mut Transform, Option<&mut Health>, Option<&TankParts>),
+        (
+            With<Player>,
+            With<LocalPlayer>,
+            Without<SnapshotReplica>,
+            Without<TankTurret>,
+            Without<TankBarrel>,
+        ),
     >,
     player_template: Option<Res<PlayerTemplate>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -807,6 +966,11 @@ fn client_apply_latest_snapshot(
     let Some(snapshot) = snapshot_state.latest.take() else {
         return;
     };
+    let Snapshot {
+        tick,
+        entities,
+        events,
+    } = snapshot;
 
     if snapshot_state.mesh.is_none() {
         snapshot_state.mesh = Some(meshes.add(Cuboid::new(1.2, 0.7, 1.8)));
@@ -824,26 +988,70 @@ fn client_apply_latest_snapshot(
     };
 
     let mut seen_ids = HashSet::new();
-    let mut seen_local = false;
-    let tick = snapshot.tick;
-    for entity_snapshot in snapshot.entities {
+    for entity_snapshot in entities {
         if local_session == Some(entity_snapshot.id.0) {
-            seen_local = true;
-            if !matches!(run_mode.0, RunMode::Host)
-                && let Ok((_, mut local_tf, maybe_health)) = local_player_q.single_mut()
-            {
-                let server_translation = Vec3::new(
-                    entity_snapshot.position[0],
-                    entity_snapshot.position[1],
-                    entity_snapshot.position[2],
-                );
-                let server_rotation = normalized_rotation(entity_snapshot.rotation);
-                reconcile_local_transform(&mut local_tf, server_translation, server_rotation);
-                if let (Some([current, max]), Some(mut health)) =
-                    (entity_snapshot.health, maybe_health)
+            if !matches!(run_mode.0, RunMode::Host) {
+                let mut local_present = false;
+                if let Some((local_entity, mut local_tf, maybe_health, tank_parts)) =
+                    local_player_q.iter_mut().next()
                 {
-                    health.max = max.max(0.0);
-                    health.current = current.clamp(0.0, health.max);
+                    local_present = true;
+                    let server_translation = Vec3::new(
+                        entity_snapshot.position[0],
+                        entity_snapshot.position[1],
+                        entity_snapshot.position[2],
+                    );
+                    let server_rotation = normalized_rotation(entity_snapshot.rotation);
+                    reconcile_local_transform(&mut local_tf, server_translation, server_rotation);
+                    if let (Some([current, max]), Some(mut health)) =
+                        (entity_snapshot.health, maybe_health)
+                    {
+                        health.max = max.max(0.0);
+                        health.current = current.clamp(0.0, health.max);
+                    }
+
+                    if let (Some(parts), Some(server_turret_yaw)) =
+                        (tank_parts, entity_snapshot.turret_yaw)
+                        && let Ok((mut turret_tf, mut turret_state, owned_by)) =
+                            transform_sets.p3().get_mut(parts.turret)
+                        && owned_by.entity == local_entity
+                    {
+                        let synced_yaw =
+                            blend_signed_angle(turret_state.yaw, server_turret_yaw, 0.35, 0.50);
+                        turret_state.yaw = synced_yaw;
+                        turret_state.yaw_target = synced_yaw;
+                        turret_state.yaw_velocity = 0.0;
+                        turret_state.initialized = true;
+                        turret_tf.rotation = Quat::from_rotation_y(synced_yaw);
+                    }
+
+                    if let (Some(parts), Some(server_barrel_pitch)) =
+                        (tank_parts, entity_snapshot.barrel_pitch)
+                        && let Ok((mut barrel_tf, mut barrel_state, owned_by)) =
+                            transform_sets.p4().get_mut(parts.barrel)
+                        && owned_by.entity == local_entity
+                    {
+                        let synced_pitch =
+                            blend_linear_angle(barrel_state.pitch, server_barrel_pitch, 0.35, 0.35);
+                        barrel_state.pitch = synced_pitch;
+                        barrel_state.pitch_target = synced_pitch;
+                        barrel_state.pitch_velocity = 0.0;
+                        barrel_state.initialized = true;
+                        barrel_tf.rotation = Quat::from_rotation_x(synced_pitch);
+                    }
+                }
+
+                if !local_present && let Some(template) = player_template.as_deref() {
+                    spawn_player_from_template(
+                        &mut commands,
+                        template,
+                        &motion_settings,
+                        &physics_settings,
+                    );
+                    eprintln!(
+                        "[net-client] local player respawn requested from snapshot: session_id={}",
+                        entity_snapshot.id.0
+                    );
                 }
             }
             continue;
@@ -858,19 +1066,19 @@ fn client_apply_latest_snapshot(
         let next_rotation = normalized_rotation(entity_snapshot.rotation);
 
         if let Some(replica) = snapshot_state.by_net_id.get(&entity_snapshot.id).copied() {
-            if let Ok(mut tf) = replica_tf_q.get_mut(replica.root) {
+            if let Ok(mut tf) = transform_sets.p0().get_mut(replica.root) {
                 tf.translation = next_translation;
                 tf.rotation = next_rotation;
             }
             if let (Some(turret_entity), Some(turret_yaw)) =
                 (replica.turret, entity_snapshot.turret_yaw)
-                && let Ok(mut turret_tf) = replica_turret_tf_q.get_mut(turret_entity)
+                && let Ok(mut turret_tf) = transform_sets.p1().get_mut(turret_entity)
             {
                 turret_tf.rotation = Quat::from_rotation_y(turret_yaw);
             }
             if let (Some(barrel_entity), Some(barrel_pitch)) =
                 (replica.barrel, entity_snapshot.barrel_pitch)
-                && let Ok(mut barrel_tf) = replica_barrel_tf_q.get_mut(barrel_entity)
+                && let Ok(mut barrel_tf) = transform_sets.p2().get_mut(barrel_entity)
             {
                 barrel_tf.rotation = Quat::from_rotation_x(barrel_pitch);
             }
@@ -902,22 +1110,22 @@ fn client_apply_latest_snapshot(
         }
     }
 
-    if !matches!(run_mode.0, RunMode::Host) && local_session.is_some() {
-        if seen_local {
-            snapshot_state.local_missing_streak = 0;
-        } else {
-            snapshot_state.local_missing_streak =
-                snapshot_state.local_missing_streak.saturating_add(1);
-            const LOCAL_DESPAWN_MISSING_SNAPSHOTS: u32 = 15;
-            if snapshot_state.local_missing_streak >= LOCAL_DESPAWN_MISSING_SNAPSHOTS
-                && let Ok((local_entity, _, _)) = local_player_q.single_mut()
-            {
-                commands.entity(local_entity).despawn_children().despawn();
-                snapshot_state.local_missing_streak = 0;
+    for event in events {
+        match event {
+            ServerEventDto::VehicleDespawned { id } => {
+                if let Some(replica) = snapshot_state.by_net_id.remove(&id) {
+                    commands.entity(replica.root).despawn_children().despawn();
+                }
+                if !matches!(run_mode.0, RunMode::Host)
+                    && local_session == Some(id.0)
+                    && let Ok((local_entity, _, _, _)) = local_player_q.single_mut()
+                {
+                    commands.entity(local_entity).despawn_children().despawn();
+                }
             }
+            ServerEventDto::VehicleSpawned { .. } => {}
+            ServerEventDto::SessionAnnounce { .. } => {}
         }
-    } else {
-        snapshot_state.local_missing_streak = 0;
     }
 
     if tick % 30 == 0 {
@@ -951,6 +1159,12 @@ fn spawn_snapshot_replica(
                 Mesh3d(template.mesh.clone()),
                 MeshMaterial3d(template.material.clone()),
                 Transform::from_translation(translation).with_rotation(rotation),
+                Collider::cuboid(
+                    template.collider_half_extents.x,
+                    template.collider_half_extents.y,
+                    template.collider_half_extents.z,
+                ),
+                Sensor,
                 SnapshotReplica,
             ))
             .id();
@@ -999,6 +1213,8 @@ fn spawn_snapshot_replica(
             Mesh3d(fallback_mesh),
             MeshMaterial3d(fallback_material),
             Transform::from_translation(translation).with_rotation(rotation),
+            Collider::cuboid(0.80, 0.37, 1.10),
+            Sensor,
             SnapshotReplica,
         ))
         .id();
@@ -1028,14 +1244,46 @@ fn reconcile_local_transform(
     let distance = delta.length();
     const HARD_SNAP_DISTANCE: f32 = 2.5;
     const POS_BLEND: f32 = 0.35;
-    const ROT_BLEND: f32 = 0.5;
+    const ROT_SNAP_ANGLE: f32 = 1.2;
+    const ROT_BLEND_START_ANGLE: f32 = 0.35;
+    const ROT_BLEND: f32 = 0.15;
 
     if distance > HARD_SNAP_DISTANCE {
         local_tf.translation = server_translation;
     } else {
         local_tf.translation += delta * POS_BLEND;
     }
-    local_tf.rotation = local_tf.rotation.slerp(server_rotation, ROT_BLEND);
+
+    // Avoid fighting local turret/camera feel with tiny body-rotation corrections every snapshot.
+    let rotation_error = local_tf.rotation.angle_between(server_rotation);
+    if rotation_error > ROT_SNAP_ANGLE {
+        local_tf.rotation = server_rotation;
+    } else if rotation_error > ROT_BLEND_START_ANGLE {
+        local_tf.rotation = local_tf.rotation.slerp(server_rotation, ROT_BLEND);
+    }
+}
+
+fn normalize_signed_angle(angle: f32) -> f32 {
+    let tau = std::f32::consts::TAU;
+    (angle + std::f32::consts::PI).rem_euclid(tau) - std::f32::consts::PI
+}
+
+fn blend_signed_angle(current: f32, target: f32, blend: f32, hard_snap_delta: f32) -> f32 {
+    let delta = normalize_signed_angle(target - current);
+    if delta.abs() > hard_snap_delta {
+        normalize_signed_angle(target)
+    } else {
+        normalize_signed_angle(current + delta * blend.clamp(0.0, 1.0))
+    }
+}
+
+fn blend_linear_angle(current: f32, target: f32, blend: f32, hard_snap_delta: f32) -> f32 {
+    let delta = target - current;
+    if delta.abs() > hard_snap_delta {
+        target
+    } else {
+        current + delta * blend.clamp(0.0, 1.0)
+    }
 }
 
 fn server_log_controlled_players(
@@ -1081,6 +1329,15 @@ fn first_unbound_local_player_entity(
     })
 }
 
+fn find_unbound_local_player(
+    local_player_q: &Query<Entity, (With<Player>, With<LocalPlayer>)>,
+    reserved: &HashSet<Entity>,
+) -> Option<Entity> {
+    local_player_q
+        .iter()
+        .find(|candidate| !reserved.contains(candidate))
+}
+
 fn spawn_network_controlled_player(
     commands: &mut Commands,
     motion_settings: &PlayerMotionSettings,
@@ -1109,6 +1366,7 @@ fn spawn_network_controlled_player(
             range: 45.0,
         },
         NetworkControlledPlayer { session_id },
+        player_collision_groups(),
         Collider::cuboid(0.80, 0.37, 1.10),
     ));
 

@@ -43,7 +43,14 @@ pub fn apply_damage_system(
             .and_then(|source| teams_query.get(source).ok())
             .copied();
 
-        if !can_damage(attacker_team, *target_team, &rules) {
+        let allow_damage = can_damage(attacker_team, *target_team, &rules);
+        if matches!(attacker_team, Some(Team::Player)) && *target_team == Team::Player {
+            eprintln!(
+                "[damage] player->player allow={} amount={:.1} source={:?} target={:?}",
+                allow_damage, event.amount, event.source, event.target
+            );
+        }
+        if !allow_damage {
             continue;
         }
 

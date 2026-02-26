@@ -94,10 +94,12 @@ pub fn fire_system(
             continue;
         };
 
-        let filter = QueryFilter::new()
+        let mut filter = QueryFilter::new()
             .exclude_collider(player_entity)
-            .exclude_rigid_body(player_entity)
-            .exclude_sensors();
+            .exclude_rigid_body(player_entity);
+        if !matches!(run_mode.0, RunMode::Client) {
+            filter = filter.exclude_sensors();
+        }
 
         let (travel_distance, impact) = if artillery_active {
             let ballistic = predict_ballistic_impact(
@@ -140,6 +142,12 @@ pub fn fire_system(
         }
 
         let Some(impact) = impact else {
+            if !matches!(run_mode.0, RunMode::Client) && intent.fire_just_pressed {
+                eprintln!(
+                    "[fire-auth] miss source={:?} origin=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2})",
+                    player_entity, ray_origin.x, ray_origin.y, ray_origin.z, ray_dir.x, ray_dir.y, ray_dir.z
+                );
+            }
             continue;
         };
 
@@ -150,10 +158,19 @@ pub fn fire_system(
             normal: impact.normal,
             damage: weapon.damage,
         });
-        if !matches!(run_mode.0, RunMode::Client) && intent.fire_just_pressed {
+        if !matches!(run_mode.0, RunMode::Client) {
             eprintln!(
-                "[fire-auth] source={:?} target={:?} damage={:.1}",
-                player_entity, impact.target, weapon.damage
+                "[fire-auth] source={:?} target={:?} damage={:.1} origin=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2}) artillery={}",
+                player_entity,
+                impact.target,
+                weapon.damage,
+                ray_origin.x,
+                ray_origin.y,
+                ray_origin.z,
+                ray_dir.x,
+                ray_dir.y,
+                ray_dir.z,
+                artillery_active
             );
         }
     }

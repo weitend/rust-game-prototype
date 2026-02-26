@@ -9,6 +9,7 @@ use crate::{
         tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts},
         weapon::HitscanWeapon,
     },
+    resources::run_mode::{AppRunMode, RunMode},
     resources::{aim_settings::AimSettings, local_player::LocalPlayerContext},
     utils::{
         ballistics::{cast_hitscan_impact, predict_ballistic_impact},
@@ -26,6 +27,7 @@ pub fn update_aim_marker_system(
     barrel_q: Query<(&TankBarrelState, &OwnedBy), With<TankBarrel>>,
     rapier_context: ReadRapierContext,
     settings: Res<AimSettings>,
+    run_mode: Res<AppRunMode>,
 ) {
     let Some((mut marker_tf, mut marker_visibility)) = marker_q.iter_mut().next() else {
         return;
@@ -74,10 +76,12 @@ pub fn update_aim_marker_system(
         return;
     };
 
-    let filter = QueryFilter::new()
+    let mut filter = QueryFilter::new()
         .exclude_collider(player_entity)
-        .exclude_rigid_body(player_entity)
-        .exclude_sensors();
+        .exclude_rigid_body(player_entity);
+    if !matches!(run_mode.0, RunMode::Client) {
+        filter = filter.exclude_sensors();
+    }
     let impact = if artillery_active {
         predict_ballistic_impact(
             &rapier_context,

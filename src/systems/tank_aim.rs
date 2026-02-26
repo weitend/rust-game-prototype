@@ -25,7 +25,10 @@ pub fn tank_turret_yaw_system(
     run_mode: Res<AppRunMode>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    mut player_q: Query<(Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>), With<Player>>,
+    mut player_q: Query<
+        (Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>),
+        With<Player>,
+    >,
     mut turret_q: Query<
         (&mut Transform, &mut TankTurretState, &OwnedBy),
         (With<TankTurret>, Without<Player>),
@@ -84,7 +87,10 @@ pub fn tank_barrel_pitch_system(
     run_mode: Res<AppRunMode>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
-    mut player_q: Query<(Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>), With<Player>>,
+    mut player_q: Query<
+        (Entity, &mut PlayerIntent, &TankParts, Option<&LocalPlayer>),
+        With<Player>,
+    >,
     mut barrel_q: Query<
         (&mut Transform, &mut TankBarrelState, &OwnedBy),
         (With<TankBarrel>, Without<Player>),
