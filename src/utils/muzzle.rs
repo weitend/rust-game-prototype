@@ -34,10 +34,8 @@ pub fn muzzle_ray_from_local_hierarchy(
     barrel_tf: &Transform,
     muzzle_tf: &Transform,
 ) -> Option<(Vec3, Vec3)> {
-    let world = hull_tf.to_matrix()
-        * turret_tf.to_matrix()
-        * barrel_tf.to_matrix()
-        * muzzle_tf.to_matrix();
+    let world =
+        hull_tf.to_matrix() * turret_tf.to_matrix() * barrel_tf.to_matrix() * muzzle_tf.to_matrix();
     let ray_origin = world.transform_point3(Vec3::ZERO);
     let ray_dir = world.transform_vector3(-Vec3::Z).normalize_or_zero();
 

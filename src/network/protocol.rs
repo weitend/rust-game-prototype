@@ -29,9 +29,15 @@ pub struct EntitySnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerEventDto {
-    SessionAnnounce { text: String },
-    VehicleSpawned { id: NetEntityId },
-    VehicleDespawned { id: NetEntityId },
+    SessionAnnounce {
+        text: String,
+    },
+    VehicleSpawned {
+        id: NetEntityId,
+    },
+    VehicleDespawned {
+        id: NetEntityId,
+    },
     ObstacleImpact {
         obstacle_id: u64,
         point: [f32; 3],

@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, io::ErrorKind};
+use std::{
+    collections::{HashMap, HashSet},
+    io::ErrorKind,
+};
 
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{Collider, Sensor};
@@ -16,7 +19,6 @@ use crate::{
         Snapshot,
     },
     resources::{
-        player_motion_settings::PlayerMotionSettings,
         player_physics_settings::PlayerPhysicsSettings,
         player_spawn::PlayerTemplate,
         run_mode::{AppRunMode, RunMode},
@@ -39,7 +41,10 @@ pub(super) fn client_send_packets(
     state: Option<ResMut<ClientNetState>>,
     time: Res<Time>,
     config: Res<NetConfig>,
-    local_player_intent_q: Query<&crate::components::intent::PlayerIntent, (With<Player>, With<LocalPlayer>)>,
+    local_player_intent_q: Query<
+        &crate::components::intent::PlayerIntent,
+        (With<Player>, With<LocalPlayer>),
+    >,
 ) {
     let Some(mut state) = state else {
         return;
@@ -217,7 +222,6 @@ pub(super) fn client_apply_latest_snapshot(
     mut commands: Commands,
     mut impact_events: MessageWriter<ImpactEvent>,
     run_mode: Res<AppRunMode>,
-    motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
     client_state: Option<Res<ClientNetState>>,
@@ -260,7 +264,11 @@ pub(super) fn client_apply_latest_snapshot(
         Query<
             'static,
             'static,
-            (&'static mut Transform, &'static mut TankTurretState, &'static OwnedBy),
+            (
+                &'static mut Transform,
+                &'static mut TankTurretState,
+                &'static OwnedBy,
+            ),
             (
                 With<TankTurret>,
                 Without<Player>,
@@ -272,7 +280,11 @@ pub(super) fn client_apply_latest_snapshot(
         Query<
             'static,
             'static,
-            (&'static mut Transform, &'static mut TankBarrelState, &'static OwnedBy),
+            (
+                &'static mut Transform,
+                &'static mut TankBarrelState,
+                &'static OwnedBy,
+            ),
             (
                 With<TankBarrel>,
                 Without<Player>,
@@ -283,7 +295,12 @@ pub(super) fn client_apply_latest_snapshot(
         >,
     )>,
     mut local_player_q: Query<
-        (Entity, &mut Transform, Option<&mut Health>, Option<&TankParts>),
+        (
+            Entity,
+            &mut Transform,
+            Option<&mut Health>,
+            Option<&TankParts>,
+        ),
         (
             With<Player>,
             With<LocalPlayer>,
@@ -392,12 +409,7 @@ pub(super) fn client_apply_latest_snapshot(
                 }
 
                 if !local_present && let Some(template) = player_template.as_deref() {
-                    spawn_player_from_template(
-                        &mut commands,
-                        template,
-                        &motion_settings,
-                        &physics_settings,
-                    );
+                    spawn_player_from_template(&mut commands, template, &physics_settings);
                     eprintln!(
                         "[net-client] local player respawn requested from snapshot: session_id={}",
                         entity_snapshot.id.0

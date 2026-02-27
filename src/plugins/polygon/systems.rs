@@ -2,18 +2,21 @@ use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
     math::Affine2,
+    mesh::Indices,
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::render_resource::{Extent3d, PrimitiveTopology, TextureDimension, TextureFormat},
 };
+use bevy_rapier3d::prelude::{Collider, CollisionGroups, Friction, Group, RigidBody};
 
 use crate::components::obstacle::{Obstacle, ObstacleNetId};
+use crate::utils::collision_groups::GROUP_WORLD;
 
 use super::{
-    config::PolygonConfig,
+    config::{PolygonConfig, PolygonMapMode},
     layout::{SectionKind, SectionLayout},
     sections::{
         collision_torture::spawn_collision_torture,
-        common::{section_center, section_span, spawn_platform},
+        common::{section_center, section_span, spawn_platform, spawn_static_block},
         cover_peek::spawn_cover_peek,
         damage_team_sandbox::spawn_damage_team_sandbox,
         hitscan_range::spawn_hitscan_range,
@@ -36,6 +39,17 @@ pub fn setup_polygon_system(
     config: Res<PolygonConfig>,
 ) {
     let config = config.sanitized();
+    if matches!(config.map_mode, PolygonMapMode::HillsDemo) {
+        setup_hills_demo_system(
+            &mut commands,
+            &mut images,
+            &mut meshes,
+            &mut materials,
+            &config,
+        );
+        return;
+    }
+
     let layout = SectionLayout::default_for_grid(config.module_grid);
 
     let platform_material = create_checker_platform_material(&mut images, &mut materials, &config);
@@ -170,6 +184,196 @@ pub fn setup_polygon_system(
     }
 }
 
+fn setup_hills_demo_system(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    config: &PolygonConfig,
+) {
+    spawn_polygon_lighting(commands, config);
+    spawn_hills_terrain(commands, images, meshes, materials, config);
+    spawn_hills_landmarks(commands, meshes, materials, config);
+}
+
+fn spawn_hills_terrain(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    config: &PolygonConfig,
+) {
+    let resolution = config.hills_resolution;
+    let span = config.platform_span();
+    let half = 0.5 * span;
+    let step = span / resolution as f32;
+    let verts_per_axis = resolution + 1;
+
+    let mut positions = Vec::<[f32; 3]>::with_capacity(verts_per_axis * verts_per_axis);
+    let mut normals = Vec::<[f32; 3]>::with_capacity(verts_per_axis * verts_per_axis);
+    let mut uvs = Vec::<[f32; 2]>::with_capacity(verts_per_axis * verts_per_axis);
+    let mut mesh_indices = Vec::<u32>::with_capacity(resolution * resolution * 6);
+    let mut collider_indices = Vec::<[u32; 3]>::with_capacity(resolution * resolution * 2);
+
+    for row in 0..=resolution {
+        let z = -half + row as f32 * step;
+        let v = row as f32 / resolution as f32;
+        for col in 0..=resolution {
+            let x = -half + col as f32 * step;
+            let u = col as f32 / resolution as f32;
+            let y = sample_hills_height(x, z, config);
+
+            positions.push([x, y, z]);
+            normals.push([0.0, 1.0, 0.0]);
+            uvs.push([u * 8.0, v * 8.0]);
+        }
+    }
+
+    for row in 0..resolution {
+        for col in 0..resolution {
+            let i0 = (row * verts_per_axis + col) as u32;
+            let i1 = i0 + 1;
+            let i2 = i0 + verts_per_axis as u32;
+            let i3 = i2 + 1;
+
+            mesh_indices.extend_from_slice(&[i0, i2, i1, i1, i2, i3]);
+            collider_indices.push([i0, i2, i1]);
+            collider_indices.push([i1, i2, i3]);
+        }
+    }
+
+    let collider_vertices: Vec<Vec3> = positions
+        .iter()
+        .map(|p| Vec3::new(p[0], p[1], p[2]))
+        .collect();
+
+    let mut terrain_mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    );
+    terrain_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    terrain_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    terrain_mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    terrain_mesh.insert_indices(Indices::U32(mesh_indices));
+    terrain_mesh.compute_smooth_normals();
+
+    let terrain_mesh_handle = meshes.add(terrain_mesh);
+    let terrain_material = create_checker_hills_material(images, materials);
+
+    let terrain_collider = match Collider::trimesh(collider_vertices, collider_indices) {
+        Ok(collider) => collider,
+        Err(err) => {
+            warn!("Failed to build hills terrain collider: {err}");
+            return;
+        }
+    };
+
+    commands.spawn((
+        Name::new("HillsTerrain"),
+        Mesh3d(terrain_mesh_handle),
+        MeshMaterial3d(terrain_material),
+        Transform::default(),
+        RigidBody::Fixed,
+        terrain_collider,
+        CollisionGroups::new(GROUP_WORLD, Group::ALL),
+        Friction::coefficient(1.0),
+    ));
+}
+
+fn spawn_hills_landmarks(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    config: &PolygonConfig,
+) {
+    let rock_material = materials.add(Color::srgb_u8(108, 106, 98));
+    let wall_material = materials.add(Color::srgb_u8(77, 82, 92));
+    let span = config.platform_span();
+    let half = 0.5 * span + 2.0;
+
+    spawn_static_block(
+        commands,
+        meshes,
+        &rock_material,
+        Vec3::new(-18.0, 2.2, -26.0),
+        Vec3::new(7.0, 4.4, 9.0),
+        true,
+    );
+    spawn_static_block(
+        commands,
+        meshes,
+        &rock_material,
+        Vec3::new(23.0, 3.0, -4.0),
+        Vec3::new(9.0, 6.0, 8.0),
+        true,
+    );
+    spawn_static_block(
+        commands,
+        meshes,
+        &rock_material,
+        Vec3::new(-6.0, 2.8, 22.0),
+        Vec3::new(11.0, 5.6, 6.0),
+        true,
+    );
+
+    let wall_height = 8.0;
+    let wall_thickness = 2.0;
+    spawn_static_block(
+        commands,
+        meshes,
+        &wall_material,
+        Vec3::new(0.0, wall_height * 0.5 - 0.2, -half),
+        Vec3::new(span + 10.0, wall_height, wall_thickness),
+        false,
+    );
+    spawn_static_block(
+        commands,
+        meshes,
+        &wall_material,
+        Vec3::new(0.0, wall_height * 0.5 - 0.2, half),
+        Vec3::new(span + 10.0, wall_height, wall_thickness),
+        false,
+    );
+    spawn_static_block(
+        commands,
+        meshes,
+        &wall_material,
+        Vec3::new(-half, wall_height * 0.5 - 0.2, 0.0),
+        Vec3::new(wall_thickness, wall_height, span + 10.0),
+        false,
+    );
+    spawn_static_block(
+        commands,
+        meshes,
+        &wall_material,
+        Vec3::new(half, wall_height * 0.5 - 0.2, 0.0),
+        Vec3::new(wall_thickness, wall_height, span + 10.0),
+        false,
+    );
+}
+
+fn sample_hills_height(x: f32, z: f32, config: &PolygonConfig) -> f32 {
+    let n = config.hills_noise_scale;
+    let base = (x * n).sin() * 0.95 + (z * n * 1.17).cos() * 0.78;
+    let ridge = ((x + z * 0.7) * n * 0.83).sin() * 0.55;
+    let cross = ((x * 0.46) * n).cos() * ((z * 0.52) * n).sin() * 0.68;
+    let radial = ((x * x + z * z).sqrt() * n * 0.31).sin() * 0.50;
+
+    let mut height = (base + ridge + cross + radial) * config.hills_max_height * 0.42;
+
+    let spawn_center = Vec2::new(0.0, 6.0);
+    let to_spawn = Vec2::new(x - spawn_center.x, z - spawn_center.y);
+    let distance = to_spawn.length();
+    if distance < config.hills_spawn_flat_radius {
+        let t = 1.0 - distance / config.hills_spawn_flat_radius;
+        let smooth = t * t * (3.0 - 2.0 * t);
+        let flatten = smooth * config.hills_spawn_flat_strength;
+        height *= 1.0 - flatten;
+    }
+
+    height
+}
+
 pub fn assign_obstacle_net_ids_system(
     mut commands: Commands,
     obstacles: Query<(Entity, &Transform), (With<Obstacle>, Without<ObstacleNetId>)>,
@@ -235,6 +439,42 @@ fn create_checker_platform_material(
     materials.add(StandardMaterial {
         base_color_texture: Some(checker_texture),
         uv_transform: Affine2::from_scale(uv_tiles),
+        ..default()
+    })
+}
+
+fn create_checker_hills_material(
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+) -> Handle<StandardMaterial> {
+    let green = [92, 132, 86, 255];
+    let white = [236, 244, 234, 255];
+    let checker_pixels = [
+        green[0], green[1], green[2], green[3], white[0], white[1], white[2], white[3], white[0],
+        white[1], white[2], white[3], green[0], green[1], green[2], green[3],
+    ];
+
+    let mut checker_image = Image::new_fill(
+        Extent3d {
+            width: 2,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &checker_pixels,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    checker_image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
+        ..ImageSamplerDescriptor::nearest()
+    });
+
+    let checker_texture = images.add(checker_image);
+    materials.add(StandardMaterial {
+        base_color_texture: Some(checker_texture),
+        perceptual_roughness: 0.94,
         ..default()
     })
 }

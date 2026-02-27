@@ -9,7 +9,6 @@ use crate::{
     resources::{
         aim_settings::{AIM_MARKER_RENDER_LAYER, AimSettings},
         impact_assets::ImpactAssets,
-        player_motion_settings::PlayerMotionSettings,
         player_physics_settings::PlayerPhysicsSettings,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
         tracer_assets::TracerAssets,
@@ -22,7 +21,6 @@ pub fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     aim_settings: Res<AimSettings>,
-    motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
 ) {
     // Player
@@ -46,12 +44,7 @@ pub fn setup(
         weapon_damage: 25.0,
         weapon_range: 45.0,
     };
-    spawn_player_from_template(
-        &mut commands,
-        &player_template,
-        &motion_settings,
-        &physics_settings,
-    );
+    spawn_player_from_template(&mut commands, &player_template, &physics_settings);
     commands.insert_resource(player_template);
     commands.insert_resource(PlayerRespawnState::default());
 
@@ -128,12 +121,29 @@ pub fn setup(
     });
 
     commands.insert_resource(TracerAssets {
-        mesh: meshes.add(Sphere::new(0.03)),
+        mesh: meshes.add(Sphere::new(0.14)),
         material: materials.add(StandardMaterial {
-            base_color: Color::srgb_u8(255, 240, 120),
+            base_color: Color::srgb_u8(255, 150, 64),
+            emissive: Color::srgb(4.6, 1.5, 0.45).into(),
             unlit: true,
             ..default()
         }),
         speed: 65.0,
+        smoke_mesh: meshes.add(Sphere::new(0.11)),
+        smoke_material: materials.add(StandardMaterial {
+            base_color: Color::srgba(0.22, 0.23, 0.24, 0.42),
+            emissive: Color::srgb(0.06, 0.06, 0.06).into(),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
+        explosion_mesh: meshes.add(Sphere::new(0.35)),
+        explosion_material: materials.add(StandardMaterial {
+            base_color: Color::srgba(1.0, 0.58, 0.22, 0.84),
+            emissive: Color::srgb(2.2, 0.72, 0.18).into(),
+            unlit: true,
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        }),
     });
 }

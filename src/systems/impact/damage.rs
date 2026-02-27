@@ -22,7 +22,12 @@ pub fn route_impact_damage_system(
     owned_targets: Query<&OwnedBy>,
 ) {
     for impact in impact_events.read() {
-        route_damage(impact, &damageable_targets, &owned_targets, &mut damage_events);
+        route_damage(
+            impact,
+            &damageable_targets,
+            &owned_targets,
+            &mut damage_events,
+        );
     }
 }
 

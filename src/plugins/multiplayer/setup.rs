@@ -1,4 +1,7 @@
-use std::{collections::HashMap, net::{SocketAddr, UdpSocket}};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, UdpSocket},
+};
 
 use bevy::prelude::*;
 

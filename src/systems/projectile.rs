@@ -94,8 +94,9 @@ pub fn projectile_step_system(
                         if blast_radius > f32::EPSILON {
                             let mut blast_filter = QueryFilter::new().exclude_sensors();
                             if let Some(source) = projectile.source {
-                                blast_filter =
-                                    blast_filter.exclude_collider(source).exclude_rigid_body(source);
+                                blast_filter = blast_filter
+                                    .exclude_collider(source)
+                                    .exclude_rigid_body(source);
                             }
 
                             let mut min_distance_by_target = Vec::<(Entity, f32)>::new();
@@ -130,7 +131,11 @@ pub fn projectile_step_system(
                             );
 
                             if let Some(direct_target) = direct_damage_target {
-                                upsert_min_distance(&mut min_distance_by_target, direct_target, 0.0);
+                                upsert_min_distance(
+                                    &mut min_distance_by_target,
+                                    direct_target,
+                                    0.0,
+                                );
                             }
 
                             min_distance_by_target

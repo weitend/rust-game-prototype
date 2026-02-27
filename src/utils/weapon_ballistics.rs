@@ -6,7 +6,7 @@ use crate::{
     resources::aim_settings::AimSettings,
 };
 
-pub const DEFAULT_DIRECT_PROJECTILE_SPEED: f32 = 65.0;
+pub const DEFAULT_DIRECT_PROJECTILE_SPEED: f32 = 650.0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ProjectileSpawnParams {

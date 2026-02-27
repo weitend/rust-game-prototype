@@ -1,22 +1,40 @@
 use bevy::prelude::{Resource, Vec3};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PolygonMapMode {
+    TrainingGround,
+    HillsDemo,
+}
+
 #[derive(Resource, Clone, Debug)]
 pub struct PolygonConfig {
+    pub map_mode: PolygonMapMode,
     pub module_grid: usize,
     pub module_size: f32,
     pub module_gap: f32,
     pub platform_height: f32,
     pub tile_size: f32,
+    pub hills_resolution: usize,
+    pub hills_max_height: f32,
+    pub hills_noise_scale: f32,
+    pub hills_spawn_flat_radius: f32,
+    pub hills_spawn_flat_strength: f32,
 }
 
 impl Default for PolygonConfig {
     fn default() -> Self {
         Self {
+            map_mode: PolygonMapMode::TrainingGround,
             module_grid: 10,
             module_size: 20.0,
             module_gap: 8.0,
             platform_height: 0.2,
             tile_size: 3.0,
+            hills_resolution: 220,
+            hills_max_height: 7.0,
+            hills_noise_scale: 0.022,
+            hills_spawn_flat_radius: 16.0,
+            hills_spawn_flat_strength: 0.95,
         }
     }
 }
@@ -24,11 +42,17 @@ impl Default for PolygonConfig {
 impl PolygonConfig {
     pub fn sanitized(&self) -> Self {
         Self {
+            map_mode: self.map_mode,
             module_grid: self.module_grid.max(1),
             module_size: self.module_size.max(1.0),
             module_gap: self.module_gap.max(0.0),
             platform_height: self.platform_height.max(0.05),
             tile_size: self.tile_size.max(0.25),
+            hills_resolution: self.hills_resolution.max(32),
+            hills_max_height: self.hills_max_height.max(0.5),
+            hills_noise_scale: self.hills_noise_scale.max(0.001),
+            hills_spawn_flat_radius: self.hills_spawn_flat_radius.max(1.0),
+            hills_spawn_flat_strength: self.hills_spawn_flat_strength.clamp(0.0, 1.0),
         }
     }
 

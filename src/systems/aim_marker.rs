@@ -12,10 +12,10 @@ use crate::{
     resources::run_mode::{AppRunMode, RunMode},
     resources::{aim_settings::AimSettings, local_player::LocalPlayerContext},
     utils::{
-        ballistics::{cast_hitscan_impact, predict_ballistic_impact, BallisticParams},
+        ballistics::{BallisticParams, cast_hitscan_impact, predict_ballistic_impact},
         local_player::resolve_local_player_entity,
         muzzle::muzzle_ray_from_local_hierarchy,
-        weapon_ballistics::{build_projectile_spawn_params, ProjectileSpawnParams},
+        weapon_ballistics::{ProjectileSpawnParams, build_projectile_spawn_params},
     },
 };
 

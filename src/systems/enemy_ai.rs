@@ -210,9 +210,19 @@ pub fn enemy_fire_system(
         commands.spawn((
             Mesh3d(tracer_assets.mesh.clone()),
             MeshMaterial3d(tracer_assets.material.clone()),
-            Transform::from_translation(ray_origin),
+            Transform::from_translation(ray_origin)
+                .looking_to(ray_dir, Vec3::Y)
+                .with_scale(Vec3::new(1.0, 1.0, 1.9)),
+            PointLight {
+                color: Color::srgb(1.0, 0.45, 0.14),
+                intensity: 2_300.0,
+                range: 4.5,
+                shadows_enabled: false,
+                ..default()
+            },
             ShotTracer {
                 velocity: ray_dir * tracer_speed,
+                smoke_timer: Timer::from_seconds(0.018, TimerMode::Repeating),
             },
             ShotTracerLifetime {
                 timer: Timer::from_seconds(tracer_lifetime, TimerMode::Once),

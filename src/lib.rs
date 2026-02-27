@@ -8,8 +8,8 @@ use plugins::runtime::{PresentationPlugin, SimulationPlugin};
 
 use crate::resources::{
     aim_settings::AimSettings, combat_rules::CombatRules, local_player::LocalPlayerContext,
-    player_motion_settings::PlayerMotionSettings, player_physics_settings::PlayerPhysicsSettings,
-    run_mode::AppRunMode, tank_settings::TankSettings,
+    player_physics_settings::PlayerPhysicsSettings, run_mode::AppRunMode,
+    tank_settings::TankSettings,
 };
 
 pub mod components;
@@ -28,7 +28,6 @@ pub fn run_app(run_mode: RunMode) {
     app.insert_resource(AppRunMode(run_mode))
         .insert_resource(AimSettings::default())
         .insert_resource(LocalPlayerContext::default())
-        .insert_resource(PlayerMotionSettings::default())
         .insert_resource(PlayerPhysicsSettings::default())
         .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default());
@@ -48,9 +47,7 @@ pub fn run_app(run_mode: RunMode) {
 
     app.add_plugins(SimulationPlugin);
     app.add_plugins(MultiplayerPlugin);
-    if matches!(run_mode, RunMode::Server) {
-        app.add_plugins(PolygonPlugin);
-    }
+    app.add_plugins(PolygonPlugin::Hills);
     if matches!(run_mode, RunMode::Client | RunMode::Host) {
         app.add_plugins(PresentationPlugin);
     }

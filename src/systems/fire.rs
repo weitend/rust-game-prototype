@@ -7,7 +7,7 @@ use crate::{
         owner::OwnedBy,
         player::{LocalPlayer, Player},
         projectile::Projectile,
-        shot_tracer::{ShotTracer, ShotTracerLifetime},
+        shot_tracer::{ShotTracer, ShotTracerLifetime, SmokePuff},
         tank::{TankBarrel, TankBarrelState, TankMuzzle, TankParts, TankTurret},
         weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
@@ -17,8 +17,7 @@ use crate::{
         tracer_assets::TracerAssets,
     },
     utils::{
-        muzzle::muzzle_ray_from_local_hierarchy,
-        weapon_ballistics::build_projectile_spawn_params,
+        muzzle::muzzle_ray_from_local_hierarchy, weapon_ballistics::build_projectile_spawn_params,
     },
 };
 
@@ -45,7 +44,16 @@ pub fn fire_system(
     aim_settings: Res<AimSettings>,
     time: Res<Time>,
 ) {
-    for (player_entity, player_tf, tank_parts, mut fire_control, weapon, projectile_profile, intent, local_marker) in &mut player_q
+    for (
+        player_entity,
+        player_tf,
+        tank_parts,
+        mut fire_control,
+        weapon,
+        projectile_profile,
+        intent,
+        local_marker,
+    ) in &mut player_q
     {
         let simulate_fire = match run_mode.0 {
             RunMode::Client => local_marker.is_some(),
@@ -119,14 +127,26 @@ pub fn fire_system(
             commands.spawn((
                 Mesh3d(tracer_assets.mesh.clone()),
                 MeshMaterial3d(tracer_assets.material.clone()),
-                Transform::from_translation(ray_origin),
+                Transform::from_translation(ray_origin)
+                    .looking_to(ray_dir, Vec3::Y)
+                    .with_scale(Vec3::new(1.0, 1.0, 1.9)),
+                PointLight {
+                    color: Color::srgb(1.0, 0.45, 0.14),
+                    intensity: 2_300.0,
+                    range: 4.5,
+                    shadows_enabled: false,
+                    ..default()
+                },
                 ShotTracer {
                     velocity: ray_dir * projectile_speed,
+                    smoke_timer: Timer::from_seconds(0.018, TimerMode::Repeating),
                 },
                 ShotTracerLifetime {
                     timer: Timer::from_seconds(tracer_lifetime, TimerMode::Once),
                 },
             ));
+
+            spawn_muzzle_smoke_burst(&mut commands, tracer_assets, ray_origin, ray_dir);
         }
 
         if matches!(run_mode.0, RunMode::Server | RunMode::Host) {
@@ -139,5 +159,47 @@ pub fn fire_system(
                 ),
             ));
         }
+    }
+}
+
+fn spawn_muzzle_smoke_burst(
+    commands: &mut Commands,
+    tracer_assets: &TracerAssets,
+    origin: Vec3,
+    ray_dir: Vec3,
+) {
+    let forward = ray_dir.normalize_or_zero();
+    if forward == Vec3::ZERO {
+        return;
+    }
+
+    let tangent = forward.any_orthonormal_vector();
+    let bitangent = forward.cross(tangent).normalize_or_zero();
+    let puff_count = 7;
+
+    for idx in 0..puff_count {
+        let phase = idx as f32 / puff_count as f32;
+        let angle = phase * std::f32::consts::TAU;
+        let swirl = (idx as f32 * 1.71).sin().abs();
+        let radial = tangent * angle.cos() + bitangent * angle.sin();
+
+        let start_scale = 0.06 + 0.03 * swirl;
+        let end_scale = 0.22 + 0.20 * swirl;
+        let velocity = -forward * (0.35 + 0.55 * swirl)
+            + Vec3::Y * (0.45 + 0.35 * swirl)
+            + radial * (0.45 + 0.35 * swirl);
+
+        commands.spawn((
+            Mesh3d(tracer_assets.smoke_mesh.clone()),
+            MeshMaterial3d(tracer_assets.smoke_material.clone()),
+            Transform::from_translation(origin + forward * 0.10 + radial * 0.02)
+                .with_scale(Vec3::splat(start_scale)),
+            SmokePuff {
+                velocity,
+                timer: Timer::from_seconds(0.35 + 0.28 * swirl, TimerMode::Once),
+                start_scale,
+                end_scale,
+            },
+        ));
     }
 }

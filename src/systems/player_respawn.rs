@@ -10,24 +10,25 @@ use crate::{
         player::{LocalPlayer, Player, PlayerControllerState},
         shoot_origin::ShootOrigin,
         tank::{
-            TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts, TankTurret,
-            TankTurretState,
+            GroundContact, TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts,
+            TankTurret, TankTurretState,
         },
         weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
     resources::{
-        player_motion_settings::PlayerMotionSettings,
-        player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
+        player_physics_settings::PlayerPhysicsSettings,
         player_spawn::{PlayerRespawnState, PlayerTemplate},
     },
     systems::combat::DeathEvent,
-    utils::collision_groups::player_collision_groups,
+    utils::{
+        collision_groups::player_collision_groups,
+        tank_physics::{tank_additional_mass_properties, tank_collider, tank_suspension},
+    },
 };
 
 pub fn spawn_player_from_template(
     commands: &mut Commands,
     template: &PlayerTemplate,
-    motion_settings: &PlayerMotionSettings,
     physics_settings: &PlayerPhysicsSettings,
 ) {
     let turret_local_offset = Vec3::new(0.0, 0.46, 0.0);
@@ -47,19 +48,20 @@ pub fn spawn_player_from_template(
         Health::new(template.max_health),
         PlayerControllerState::default(),
         PlayerIntent::default(),
+        GroundContact::default(),
     ));
     let player_entity_id = player_entity.id();
-
     player_entity.insert((
         ShootOrigin {
             muzzle_offset: template.muzzle_offset,
         },
         player_collision_groups(),
-        Collider::cuboid(
-            template.collider_half_extents.x,
-            template.collider_half_extents.y,
-            template.collider_half_extents.z,
-        ),
+        tank_collider(template.collider_half_extents, physics_settings),
+        tank_suspension(template.collider_half_extents),
+        Friction {
+            coefficient: 0.0,
+            combine_rule: CoefficientCombineRule::Min,
+        },
         FireControl {
             cooldown: Timer::from_seconds(1.0 / template.shots_per_second, TimerMode::Repeating),
         },
@@ -69,23 +71,17 @@ pub fn spawn_player_from_template(
         },
         ProjectileWeaponProfile::default(),
     ));
-    match physics_settings.mode {
-        PlayerHullPhysicsMode::KinematicController => {
-            player_entity.insert(default_tank_controller(motion_settings));
-        }
-        PlayerHullPhysicsMode::DynamicForces => {
-            player_entity.insert((
-                RigidBody::Dynamic,
-                Velocity::zero(),
-                ExternalForce::default(),
-                Damping {
-                    linear_damping: physics_settings.dynamic_linear_damping,
-                    angular_damping: physics_settings.dynamic_angular_damping,
-                },
-                LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z,
-            ));
-        }
-    }
+    player_entity.insert((
+        RigidBody::Dynamic,
+        Velocity::zero(),
+        ExternalForce::default(),
+        tank_additional_mass_properties(physics_settings),
+        Sleeping::disabled(),
+        Damping {
+            linear_damping: physics_settings.linear_damping,
+            angular_damping: physics_settings.angular_damping,
+        },
+    ));
 
     let turret_entity = commands
         .spawn((
@@ -167,7 +163,6 @@ pub fn player_respawn_tick_system(
     time: Res<Time>,
     mut respawn: ResMut<PlayerRespawnState>,
     template: Res<PlayerTemplate>,
-    motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
     player_query: Query<(), With<Player>>,
 ) {
@@ -185,27 +180,6 @@ pub fn player_respawn_tick_system(
         return;
     }
 
-    spawn_player_from_template(
-        &mut commands,
-        &template,
-        &motion_settings,
-        &physics_settings,
-    );
+    spawn_player_from_template(&mut commands, &template, &physics_settings);
     respawn.pending = false;
-}
-
-fn default_tank_controller(settings: &PlayerMotionSettings) -> KinematicCharacterController {
-    KinematicCharacterController {
-        offset: CharacterLength::Absolute(settings.controller_offset),
-        slide: true,
-        apply_impulse_to_dynamic_bodies: false,
-        filter_flags: QueryFilterFlags::EXCLUDE_DYNAMIC | QueryFilterFlags::EXCLUDE_SENSORS,
-        autostep: Some(CharacterAutostep {
-            max_height: CharacterLength::Absolute(settings.autostep_height),
-            min_width: CharacterLength::Absolute(settings.autostep_min_width),
-            include_dynamic_bodies: false,
-        }),
-        snap_to_ground: Some(CharacterLength::Absolute(settings.snap_to_ground)),
-        ..default()
-    }
 }

@@ -1,7 +1,10 @@
 use bevy::prelude::*;
 
 use crate::{
-    components::{intent::PlayerIntent, player::{LocalPlayer, Player}},
+    components::{
+        intent::PlayerIntent,
+        player::{LocalPlayer, Player},
+    },
     network::protocol::ClientInput,
 };
 

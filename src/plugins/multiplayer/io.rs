@@ -5,7 +5,11 @@ use std::{
 
 use crate::network::protocol::{ClientPacket, ServerPacket};
 
-pub(super) fn send_client_packet(socket: &UdpSocket, server_addr: SocketAddr, packet: &ClientPacket) {
+pub(super) fn send_client_packet(
+    socket: &UdpSocket,
+    server_addr: SocketAddr,
+    packet: &ClientPacket,
+) {
     if let Ok(bytes) = bincode::serialize(packet) {
         let _ = socket.send_to(&bytes, server_addr);
     }

@@ -15,7 +15,6 @@ use crate::{
         ClientPacket, EntitySnapshot, NetEntityId, ServerEventDto, ServerPacket, Snapshot,
     },
     resources::{
-        player_motion_settings::PlayerMotionSettings,
         player_physics_settings::PlayerPhysicsSettings,
         run_mode::{AppRunMode, RunMode},
     },
@@ -43,7 +42,6 @@ pub(super) fn server_receive_packets(
     config: Res<NetConfig>,
     run_mode: Res<AppRunMode>,
     host_loopback_nonce: Option<Res<HostLoopbackNonce>>,
-    motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
     mut lifecycle: MessageWriter<NetLifecycleMessage>,
     mut player_intent_q: Query<&mut PlayerIntent, With<Player>>,
@@ -116,7 +114,6 @@ pub(super) fn server_receive_packets(
                         &mut commands,
                         &run_mode,
                         preferred_host_local,
-                        &motion_settings,
                         &physics_settings,
                         session_id,
                     );
@@ -198,7 +195,6 @@ pub(super) fn server_receive_packets(
                             &mut commands,
                             &run_mode,
                             None,
-                            &motion_settings,
                             &physics_settings,
                             session.id,
                         );
@@ -237,7 +233,6 @@ pub(super) fn server_respawn_missing_players(
     state: Option<ResMut<ServerNetState>>,
     time: Res<Time>,
     run_mode: Res<AppRunMode>,
-    motion_settings: Res<PlayerMotionSettings>,
     physics_settings: Res<PlayerPhysicsSettings>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     network_player_q: Query<(), With<NetworkControlledPlayer>>,
@@ -300,7 +295,6 @@ pub(super) fn server_respawn_missing_players(
             &mut commands,
             &run_mode,
             preferred_host_local,
-            &motion_settings,
             &physics_settings,
             session.id,
         );

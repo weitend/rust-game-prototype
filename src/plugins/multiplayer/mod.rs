@@ -61,8 +61,7 @@ impl Plugin for MultiplayerPlugin {
             )
             .add_systems(
                 Update,
-                client_apply_latest_snapshot
-                    .run_if(is_client_like_mode),
+                client_apply_latest_snapshot.run_if(is_client_like_mode),
             );
     }
 }

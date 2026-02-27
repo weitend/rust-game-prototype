@@ -11,8 +11,9 @@ pub fn resolve_damage_target(
         return Some(target);
     }
 
-    owned_targets
-        .get(target)
-        .ok()
-        .and_then(|owner| damageable_targets.contains(owner.entity).then_some(owner.entity))
+    owned_targets.get(target).ok().and_then(|owner| {
+        damageable_targets
+            .contains(owner.entity)
+            .then_some(owner.entity)
+    })
 }

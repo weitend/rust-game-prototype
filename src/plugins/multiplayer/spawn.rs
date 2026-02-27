@@ -2,8 +2,7 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::{
-    CharacterAutostep, CharacterLength, Collider, Damping, ExternalForce,
-    KinematicCharacterController, LockedAxes, RigidBody, Velocity,
+    CoefficientCombineRule, Damping, ExternalForce, Friction, RigidBody, Sleeping, Velocity,
 };
 
 use crate::{
@@ -14,17 +13,19 @@ use crate::{
         owner::OwnedBy,
         player::{LocalPlayer, Player, PlayerControllerState},
         tank::{
-            TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts, TankTurret,
-            TankTurretState,
+            GroundContact, TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts,
+            TankTurret, TankTurretState,
         },
         weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
     resources::{
-        player_motion_settings::PlayerMotionSettings,
-        player_physics_settings::{PlayerHullPhysicsMode, PlayerPhysicsSettings},
+        player_physics_settings::PlayerPhysicsSettings,
         run_mode::{AppRunMode, RunMode},
     },
-    utils::collision_groups::player_collision_groups,
+    utils::{
+        collision_groups::player_collision_groups,
+        tank_physics::{tank_additional_mass_properties, tank_collider, tank_suspension},
+    },
 };
 
 use super::state::{NetworkControlledPlayer, ServerNetState};
@@ -33,7 +34,6 @@ pub(super) fn assign_player_entity_for_session(
     commands: &mut Commands,
     run_mode: &AppRunMode,
     preferred_host_local: Option<Entity>,
-    motion_settings: &PlayerMotionSettings,
     physics_settings: &PlayerPhysicsSettings,
     session_id: u64,
 ) -> Entity {
@@ -46,7 +46,7 @@ pub(super) fn assign_player_entity_for_session(
             return local_player_entity;
         }
     }
-    spawn_network_controlled_player(commands, motion_settings, physics_settings, session_id)
+    spawn_network_controlled_player(commands, physics_settings, session_id)
 }
 
 pub(super) fn first_unbound_local_player_entity(
@@ -72,13 +72,13 @@ pub(super) fn find_unbound_local_player(
 
 pub(super) fn spawn_network_controlled_player(
     commands: &mut Commands,
-    motion_settings: &PlayerMotionSettings,
     physics_settings: &PlayerPhysicsSettings,
     session_id: u64,
 ) -> Entity {
     const TURRET_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.46, 0.0);
     const BARREL_PIVOT_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.09, -0.44);
     const MUZZLE_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.0, -1.26);
+    const COLLIDER_HALF_EXTENTS: Vec3 = Vec3::new(0.80, 0.37, 1.10);
 
     let spawn_x = ((session_id.saturating_sub(1)) as f32) * 3.5;
     let mut entity = commands.spawn((
@@ -90,6 +90,7 @@ pub(super) fn spawn_network_controlled_player(
         Health::new(100.0),
         PlayerControllerState::default(),
         PlayerIntent::default(),
+        GroundContact::default(),
         FireControl {
             cooldown: Timer::from_seconds(1.0 / 5.0, TimerMode::Repeating),
         },
@@ -100,26 +101,25 @@ pub(super) fn spawn_network_controlled_player(
         ProjectileWeaponProfile::default(),
         NetworkControlledPlayer { session_id },
         player_collision_groups(),
-        Collider::cuboid(0.80, 0.37, 1.10),
+        tank_collider(COLLIDER_HALF_EXTENTS, physics_settings),
     ));
+    entity.insert(tank_suspension(COLLIDER_HALF_EXTENTS));
+    entity.insert(Friction {
+        coefficient: 0.0,
+        combine_rule: CoefficientCombineRule::Min,
+    });
 
-    match physics_settings.mode {
-        PlayerHullPhysicsMode::KinematicController => {
-            entity.insert(default_tank_controller(motion_settings));
-        }
-        PlayerHullPhysicsMode::DynamicForces => {
-            entity.insert((
-                RigidBody::Dynamic,
-                Velocity::zero(),
-                ExternalForce::default(),
-                Damping {
-                    linear_damping: physics_settings.dynamic_linear_damping,
-                    angular_damping: physics_settings.dynamic_angular_damping,
-                },
-                LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z,
-            ));
-        }
-    }
+    entity.insert((
+        RigidBody::Dynamic,
+        Velocity::zero(),
+        ExternalForce::default(),
+        tank_additional_mass_properties(physics_settings),
+        Sleeping::disabled(),
+        Damping {
+            linear_damping: physics_settings.linear_damping,
+            angular_damping: physics_settings.angular_damping,
+        },
+    ));
 
     let id = entity.id();
     let turret = commands
@@ -164,23 +164,6 @@ pub(super) fn spawn_network_controlled_player(
         session_id, id
     );
     id
-}
-
-pub(super) fn default_tank_controller(settings: &PlayerMotionSettings) -> KinematicCharacterController {
-    KinematicCharacterController {
-        offset: CharacterLength::Absolute(settings.controller_offset),
-        slide: true,
-        apply_impulse_to_dynamic_bodies: false,
-        filter_flags: bevy_rapier3d::prelude::QueryFilterFlags::EXCLUDE_DYNAMIC
-            | bevy_rapier3d::prelude::QueryFilterFlags::EXCLUDE_SENSORS,
-        autostep: Some(CharacterAutostep {
-            max_height: CharacterLength::Absolute(settings.autostep_height),
-            min_width: CharacterLength::Absolute(settings.autostep_min_width),
-            include_dynamic_bodies: false,
-        }),
-        snap_to_ground: Some(CharacterLength::Absolute(settings.snap_to_ground)),
-        ..default()
-    }
 }
 
 pub(super) fn despawn_network_owned_player(

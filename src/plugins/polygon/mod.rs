@@ -9,15 +9,35 @@ use bevy_rapier3d::plugin::PhysicsSet;
 
 use crate::resources::run_mode::{AppRunMode, RunMode};
 
-pub use config::PolygonConfig;
+pub use config::{PolygonConfig, PolygonMapMode};
 use systems::{assign_obstacle_net_ids_system, setup_polygon_system};
 use teleports::{TeleportRuntime, sync_teleport_labels_system, teleport_player_system};
 
-pub struct PolygonPlugin;
+pub enum PolygonPlugin {
+    Training,
+    Hills,
+}
+
+impl Default for PolygonPlugin {
+    fn default() -> Self {
+        Self::Training
+    }
+}
 
 impl Plugin for PolygonPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PolygonConfig>()
+        let map_mode = match self {
+            PolygonPlugin::Training => PolygonMapMode::TrainingGround,
+            PolygonPlugin::Hills => PolygonMapMode::HillsDemo,
+        };
+        let mut config = app
+            .world()
+            .get_resource::<PolygonConfig>()
+            .cloned()
+            .unwrap_or_default();
+        config.map_mode = map_mode;
+
+        app.insert_resource(config)
             .init_resource::<Assets<Image>>()
             .init_resource::<Assets<Mesh>>()
             .init_resource::<Assets<StandardMaterial>>()

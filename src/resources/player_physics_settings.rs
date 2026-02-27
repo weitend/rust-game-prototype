@@ -1,39 +1,81 @@
 use bevy::prelude::Resource;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PlayerHullPhysicsMode {
-    KinematicController,
-    DynamicForces,
-}
+use bevy::prelude::Vec3;
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct PlayerPhysicsSettings {
-    pub mode: PlayerHullPhysicsMode,
-    pub dynamic_linear_damping: f32,
-    pub dynamic_angular_damping: f32,
-    pub dynamic_drive_accel_gain: f32,
-    pub dynamic_drive_accel_max: f32,
-    pub dynamic_lateral_grip: f32,
-    pub dynamic_yaw_accel_gain: f32,
-    pub dynamic_yaw_accel_max: f32,
+    pub hull_mass_kg: f32,
+    pub hull_center_of_mass_offset: Vec3,
+    pub hull_principal_inertia: Vec3,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub collider_round_radius: f32,
+    pub engine_idle_rpm: f32,
+    pub engine_peak_torque_rpm: f32,
+    pub engine_redline_rpm: f32,
+    pub engine_torque_idle_nm: f32,
+    pub engine_torque_peak_nm: f32,
+    pub engine_torque_redline_nm: f32,
+    pub engine_rotational_inertia_kg_m2: f32,
+    pub engine_viscous_drag_nm_per_radps: f32,
+    pub engine_idle_governor_gain_nm_per_radps: f32,
+    pub clutch_max_torque_nm: f32,
+    pub clutch_coupling_nm_per_radps: f32,
+    pub final_drive_ratio: f32,
+    pub forward_gear_ratios: [f32; 5],
+    pub reverse_gear_ratio: f32,
+    pub drivetrain_efficiency: f32,
+    pub drive_sprocket_radius_m: f32,
+    pub track_friction_coefficient: f32,
+    pub rolling_resistance_coefficient: f32,
+    pub track_longitudinal_stiffness_per_slip: f32,
+    pub track_lateral_stiffness_per_rad: f32,
+    pub track_rotational_inertia_kg_m2: f32,
+    pub drivetrain_viscous_drag_nm_per_radps: f32,
+    pub slip_regularization_speed_mps: f32,
+    pub suspension_rest_length_m: f32,
+    pub suspension_travel_m: f32,
+    pub suspension_stiffness_n_per_m: f32,
+    pub suspension_damping_n_per_mps: f32,
 }
 
 impl Default for PlayerPhysicsSettings {
     fn default() -> Self {
-        let mode = match std::env::var("RUST_GAME_PLAYER_HULL_MODE").ok().as_deref() {
-            Some("dynamic") => PlayerHullPhysicsMode::DynamicForces,
-            _ => PlayerHullPhysicsMode::KinematicController,
-        };
-
         Self {
-            mode,
-            dynamic_linear_damping: 1.2,
-            dynamic_angular_damping: 2.4,
-            dynamic_drive_accel_gain: 7.2,
-            dynamic_drive_accel_max: 20.0,
-            dynamic_lateral_grip: 6.0,
-            dynamic_yaw_accel_gain: 8.0,
-            dynamic_yaw_accel_max: 18.0,
+            hull_mass_kg: 28_000.0,
+            hull_center_of_mass_offset: Vec3::new(0.0, -0.26, 0.0),
+            hull_principal_inertia: Vec3::new(18_000.0, 26_000.0, 18_000.0),
+            linear_damping: 0.35,
+            angular_damping: 0.42,
+            collider_round_radius: 0.12,
+            engine_idle_rpm: 650.0,
+            engine_peak_torque_rpm: 1_600.0,
+            engine_redline_rpm: 2_600.0,
+            engine_torque_idle_nm: 1_400.0,
+            engine_torque_peak_nm: 2_650.0,
+            engine_torque_redline_nm: 1_900.0,
+            engine_rotational_inertia_kg_m2: 3.8,
+            engine_viscous_drag_nm_per_radps: 18.0,
+            engine_idle_governor_gain_nm_per_radps: 220.0,
+            clutch_max_torque_nm: 6_200.0,
+            clutch_coupling_nm_per_radps: 1_350.0,
+            final_drive_ratio: 4.8,
+            forward_gear_ratios: [6.5, 4.6, 3.3, 2.4, 1.75],
+            reverse_gear_ratio: 4.9,
+            drivetrain_efficiency: 0.88,
+            drive_sprocket_radius_m: 0.34,
+            track_friction_coefficient: 0.85,
+            rolling_resistance_coefficient: 0.05,
+            track_longitudinal_stiffness_per_slip: 7.0,
+            track_lateral_stiffness_per_rad: 4.2,
+            track_rotational_inertia_kg_m2: 12.0,
+            drivetrain_viscous_drag_nm_per_radps: 180.0,
+            slip_regularization_speed_mps: 0.35,
+            suspension_rest_length_m: 0.42,
+            suspension_travel_m: 0.26,
+            suspension_stiffness_n_per_m: 180_000.0,
+            suspension_damping_n_per_mps: 28_000.0,
         }
     }
 }
+
+pub type TankSpec = PlayerPhysicsSettings;

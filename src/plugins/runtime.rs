@@ -21,13 +21,14 @@ use crate::{
         player_respawn::{player_respawn_tick_system, schedule_player_respawn_on_death_system},
         projectile::projectile_step_system,
         setup::setup,
-        shot_tracer::update_shot_tracer_system,
+        shot_tracer::{
+            spawn_hit_explosion_system, update_explosion_vfx_system, update_shot_tracer_system,
+            update_smoke_puff_system,
+        },
         tank_aim::{tank_barrel_pitch_system, tank_turret_yaw_system},
         tank_move::tank_hull_move_system,
     },
 };
-
-use super::polygon::PolygonPlugin;
 
 pub struct SimulationPlugin;
 
@@ -37,11 +38,14 @@ impl Plugin for SimulationPlugin {
             .add_message::<DamageEvent>()
             .add_message::<DeathEvent>()
             .add_systems(
+                FixedUpdate,
+                tank_hull_move_system.before(PhysicsSet::StepSimulation),
+            )
+            .add_systems(
                 Update,
                 (
                     resolve_local_player_context_system,
                     player_input_intent_system.run_if(is_client_like_mode),
-                    tank_hull_move_system,
                     tank_turret_yaw_system,
                     tank_barrel_pitch_system,
                     fire_system,
@@ -61,8 +65,7 @@ pub struct PresentationPlugin;
 
 impl Plugin for PresentationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PolygonPlugin)
-            .add_systems(Startup, (setup, lock_cursor_system))
+        app.add_systems(Startup, (setup, lock_cursor_system))
             .add_systems(
                 Update,
                 (
@@ -74,7 +77,10 @@ impl Plugin for PresentationPlugin {
                     update_artillery_vignette_system,
                     process_impact_system,
                     debris_chip_lifetime_system,
+                    spawn_hit_explosion_system,
                     update_shot_tracer_system,
+                    update_smoke_puff_system,
+                    update_explosion_vfx_system,
                 ),
             )
             .add_systems(
