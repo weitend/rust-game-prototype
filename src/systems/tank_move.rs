@@ -28,6 +28,16 @@ struct SuspensionContactSample {
     lateral_speed: f32,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct AxleAntiRollSample {
+    left_mount_world: Option<Vec3>,
+    right_mount_world: Option<Vec3>,
+    left_compression_m: f32,
+    right_compression_m: f32,
+    left_in_contact: bool,
+    right_in_contact: bool,
+}
+
 fn point_velocity_at(velocity: &Velocity, world_com: Vec3, point: Vec3) -> Vec3 {
     velocity.linvel + velocity.angvel.cross(point - world_com)
 }
@@ -95,9 +105,11 @@ fn select_forward_gear_for_traction(
     ground_speed_abs: f32,
     settings: &PlayerPhysicsSettings,
 ) -> (usize, f32, f32) {
-    let mut best_idx = 0usize;
+    let idle_rpm = settings.engine_idle_rpm.max(100.0);
+    let redline_rpm = settings.engine_redline_rpm.max(idle_rpm + 1.0);
+    let mut best_idx = None;
     let mut best_ratio = settings.forward_gear_ratios[0].max(0.01);
-    let mut best_rpm = engine_rpm_from_ground_speed(ground_speed_abs, best_ratio, settings);
+    let mut best_rpm = idle_rpm;
     let mut best_force = f32::NEG_INFINITY;
     let final_drive = settings.final_drive_ratio.max(0.01);
     let efficiency = settings.drivetrain_efficiency.clamp(0.0, 1.0);
@@ -105,18 +117,32 @@ fn select_forward_gear_for_traction(
 
     for (idx, ratio_raw) in settings.forward_gear_ratios.iter().enumerate() {
         let ratio = ratio_raw.max(0.01);
-        let rpm = engine_rpm_from_ground_speed(ground_speed_abs, ratio, settings);
+        let raw_rpm =
+            ground_speed_abs.max(0.0) / sprocket_radius * ratio * final_drive * (60.0 / TAU);
+        if raw_rpm > redline_rpm {
+            continue;
+        }
+
+        let rpm = raw_rpm.max(idle_rpm);
         let torque = engine_torque_at_rpm(rpm, settings);
         let force = torque * ratio * final_drive * efficiency / sprocket_radius;
         if force > best_force {
             best_force = force;
-            best_idx = idx;
+            best_idx = Some(idx);
             best_ratio = ratio;
             best_rpm = rpm;
         }
     }
 
-    (best_idx, best_ratio, best_rpm)
+    if let Some(idx) = best_idx {
+        return (idx, best_ratio, best_rpm);
+    }
+
+    // If all lower gears are over-redline at current ground speed, choose top gear.
+    let fallback_idx = settings.forward_gear_ratios.len().saturating_sub(1);
+    let fallback_ratio = settings.forward_gear_ratios[fallback_idx].max(0.01);
+    let fallback_rpm = engine_rpm_from_ground_speed(ground_speed_abs, fallback_ratio, settings);
+    (fallback_idx, fallback_ratio, fallback_rpm)
 }
 
 pub fn tank_hull_move_system(
@@ -181,11 +207,20 @@ pub fn tank_hull_move_system(
         let mut total_force = Vec3::ZERO;
         let mut total_torque = Vec3::ZERO;
         let mut contacts = Vec::with_capacity(suspension.points.len());
+        let mut axle_samples = vec![AxleAntiRollSample::default(); suspension.points.len() / 2];
         let mut weighted_normal_sum = Vec3::ZERO;
         let mut total_normal_load = 0.0_f32;
 
-        for point in &suspension.points {
+        for (point_index, point) in suspension.points.iter().enumerate() {
+            let axle_index = point_index / 2;
             let mount_world = player_tf.translation + player_tf.rotation * point.local_anchor;
+            if let Some(axle) = axle_samples.get_mut(axle_index) {
+                match point.side {
+                    TrackSide::Left => axle.left_mount_world = Some(mount_world),
+                    TrackSide::Right => axle.right_mount_world = Some(mount_world),
+                }
+            }
+
             let Some((hit_entity, hit)) = rapier_context.cast_ray_and_get_normal(
                 mount_world,
                 spring_axis,
@@ -208,6 +243,18 @@ pub fn tank_hull_move_system(
             let compression = (rest_length - suspension_length).max(0.0);
             if compression <= 0.0 {
                 continue;
+            }
+            if let Some(axle) = axle_samples.get_mut(axle_index) {
+                match point.side {
+                    TrackSide::Left => {
+                        axle.left_compression_m = compression;
+                        axle.left_in_contact = true;
+                    }
+                    TrackSide::Right => {
+                        axle.right_compression_m = compression;
+                        axle.right_in_contact = true;
+                    }
+                }
             }
 
             let mount_velocity = point_velocity_at(velocity, world_com, mount_world);
@@ -260,6 +307,34 @@ pub fn tank_hull_move_system(
             total_normal_load += normal_load;
         }
 
+        let anti_roll_stiffness = physics_settings
+            .suspension_anti_roll_stiffness_n_per_m
+            .max(0.0);
+        if anti_roll_stiffness > 0.0 {
+            let suspension_up = -spring_axis;
+            for axle in &axle_samples {
+                if !axle.left_in_contact || !axle.right_in_contact {
+                    continue;
+                }
+                let roll_displacement = axle.left_compression_m - axle.right_compression_m;
+                if roll_displacement.abs() <= f32::EPSILON {
+                    continue;
+                }
+
+                let anti_roll_force = anti_roll_stiffness * roll_displacement;
+                if let Some(left_mount_world) = axle.left_mount_world {
+                    let left_force = suspension_up * anti_roll_force;
+                    total_force += left_force;
+                    total_torque += (left_mount_world - world_com).cross(left_force);
+                }
+                if let Some(right_mount_world) = axle.right_mount_world {
+                    let right_force = -suspension_up * anti_roll_force;
+                    total_force += right_force;
+                    total_torque += (right_mount_world - world_com).cross(right_force);
+                }
+            }
+        }
+
         if total_normal_load > 0.0 {
             ground_contact.grounded = true;
             ground_contact.normal = (weighted_normal_sum / total_normal_load).normalize_or_zero();
@@ -295,12 +370,15 @@ pub fn tank_hull_move_system(
 
         let mean_track_omega_abs =
             0.5 * (state.left_track_angular_speed.abs() + state.right_track_angular_speed.abs());
-        let (gear_index, active_ratio) = if throttle_axis < -0.05 {
-            (-1_i8, physics_settings.reverse_gear_ratio.abs().max(0.01))
+        let (gear_index, active_ratio, selected_gear_rpm) = if throttle_axis < -0.05 {
+            let reverse_ratio = physics_settings.reverse_gear_ratio.abs().max(0.01);
+            let reverse_rpm =
+                engine_rpm_from_ground_speed(ground_speed_abs, reverse_ratio, &physics_settings);
+            (-1_i8, reverse_ratio, reverse_rpm)
         } else {
-            let (forward_gear_idx, ratio, _) =
+            let (forward_gear_idx, ratio, selected_rpm) =
                 select_forward_gear_for_traction(ground_speed_abs, &physics_settings);
-            ((forward_gear_idx as i8) + 1, ratio)
+            ((forward_gear_idx as i8) + 1, ratio, selected_rpm)
         };
         let neutral_steer_active = driver_throttle <= 0.05 && turn_axis.abs() > 0.05;
         let (
@@ -332,7 +410,7 @@ pub fn tank_hull_move_system(
         let mut engine_omega = if state.engine_rpm > 1.0 {
             state.engine_rpm * TAU / 60.0
         } else {
-            idle_omega
+            selected_gear_rpm * TAU / 60.0
         };
         let engine_rpm_from_state = (engine_omega * 60.0 / TAU).max(0.0);
         let peak_engine_torque = engine_torque_at_rpm(engine_rpm_from_state, &physics_settings);
@@ -340,7 +418,13 @@ pub fn tank_hull_move_system(
             * physics_settings
                 .engine_idle_governor_gain_nm_per_radps
                 .max(0.0);
-        let combustion_torque = peak_engine_torque * throttle_demand + governor_torque;
+        let redline_omega = physics_settings.engine_redline_rpm.max(100.0) * TAU / 60.0;
+        let throttle_torque = if engine_omega >= redline_omega {
+            0.0
+        } else {
+            peak_engine_torque * throttle_demand
+        };
+        let combustion_torque = throttle_torque + governor_torque;
 
         let transmission_side_omega = mean_track_omega_abs * driveline_ratio.max(0.01);
         let clutch_slip = engine_omega - transmission_side_omega;

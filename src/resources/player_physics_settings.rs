@@ -37,6 +37,7 @@ pub struct PlayerPhysicsSettings {
     pub suspension_travel_m: f32,
     pub suspension_stiffness_n_per_m: f32,
     pub suspension_damping_n_per_mps: f32,
+    pub suspension_anti_roll_stiffness_n_per_m: f32,
 }
 
 impl Default for PlayerPhysicsSettings {
@@ -76,6 +77,7 @@ impl Default for PlayerPhysicsSettings {
             suspension_travel_m: 0.26,
             suspension_stiffness_n_per_m: 180_000.0,
             suspension_damping_n_per_mps: 28_000.0,
+            suspension_anti_roll_stiffness_n_per_m: 95_000.0,
         }
     }
 }
