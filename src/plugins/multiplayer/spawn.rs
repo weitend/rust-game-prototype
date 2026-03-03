@@ -25,6 +25,7 @@ use crate::{
     utils::{
         collision_groups::player_collision_groups,
         tank_physics::{tank_additional_mass_properties, tank_collider, tank_suspension},
+        tank_visual::{BARREL_PIVOT_LOCAL_OFFSET, MUZZLE_LOCAL_OFFSET, TURRET_LOCAL_OFFSET},
     },
 };
 
@@ -75,9 +76,6 @@ pub(super) fn spawn_network_controlled_player(
     physics_settings: &PlayerPhysicsSettings,
     session_id: u64,
 ) -> Entity {
-    const TURRET_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.46, 0.0);
-    const BARREL_PIVOT_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.09, -0.44);
-    const MUZZLE_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.0, -1.26);
     const COLLIDER_HALF_EXTENTS: Vec3 = Vec3::new(0.80, 0.37, 1.10);
 
     let spawn_x = ((session_id.saturating_sub(1)) as f32) * 3.5;

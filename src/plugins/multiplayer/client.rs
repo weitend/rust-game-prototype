@@ -24,6 +24,10 @@ use crate::{
         run_mode::{AppRunMode, RunMode},
     },
     systems::{impact::ImpactEvent, player_respawn::spawn_player_from_template},
+    utils::tank_visual::{
+        BARREL_PIVOT_LOCAL_OFFSET, BARREL_VISUAL_LOCAL_OFFSET, TURRET_LOCAL_OFFSET,
+        spawn_track_visuals_for_entity,
+    },
 };
 
 use super::{
@@ -600,10 +604,6 @@ fn spawn_snapshot_replica(
     fallback_mesh: Handle<Mesh>,
     fallback_material: Handle<StandardMaterial>,
 ) -> SnapshotReplicaEntities {
-    const TURRET_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.46, 0.0);
-    const BARREL_PIVOT_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.09, -0.44);
-    const BARREL_VISUAL_LOCAL_OFFSET: Vec3 = Vec3::new(0.0, 0.0, -0.63);
-
     if let Some(template) = player_template {
         let root = commands
             .spawn((
@@ -620,6 +620,8 @@ fn spawn_snapshot_replica(
                 SnapshotReplica,
             ))
             .id();
+
+        spawn_track_visuals_for_entity(commands, template, root, None);
 
         let turret = commands
             .spawn((

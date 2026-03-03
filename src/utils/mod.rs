@@ -5,4 +5,5 @@ pub mod impact_math;
 pub mod local_player;
 pub mod muzzle;
 pub mod tank_physics;
+pub mod tank_visual;
 pub mod weapon_ballistics;
