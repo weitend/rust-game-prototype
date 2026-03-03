@@ -31,14 +31,17 @@ use super::{
     intent::{intent_changed_significantly, read_single_local_intent},
     io::send_client_packet,
     state::{
-        CLIENT_IMPACT_SEQ_WINDOW, ClientImpactSyncState, ClientNetState, ClientSnapshotState,
-        NetLifecycleMessage, SnapshotReplica, SnapshotReplicaBarrel, SnapshotReplicaEntities,
-        SnapshotReplicaTurret,
+        CLIENT_IMPACT_SEQ_WINDOW, ClientImpactSyncState, ClientNetState, ClientNetworkTelemetry,
+        ClientSnapshotState, NetLifecycleMessage, SnapshotReplica, SnapshotReplicaBarrel,
+        SnapshotReplicaEntities, SnapshotReplicaTurret,
     },
 };
 
+const PING_TIMEOUT_SECS: f64 = 3.0;
+
 pub(super) fn client_send_packets(
     state: Option<ResMut<ClientNetState>>,
+    telemetry: Option<ResMut<ClientNetworkTelemetry>>,
     time: Res<Time>,
     config: Res<NetConfig>,
     local_player_intent_q: Query<
@@ -49,12 +52,17 @@ pub(super) fn client_send_packets(
     let Some(mut state) = state else {
         return;
     };
+    let mut telemetry = telemetry;
 
     state.hello_timer.tick(time.delta());
     state.ping_timer.tick(time.delta());
     state.input_timer.tick(time.delta());
 
     if !state.connected {
+        if let Some(telemetry) = telemetry.as_deref_mut() {
+            telemetry.connected = false;
+            telemetry.status = format!("net: connecting ({})", state.server_addr);
+        }
         if state.hello_timer.just_finished() {
             send_client_packet(
                 &state.socket,
@@ -71,11 +79,21 @@ pub(super) fn client_send_packets(
     if state.ping_timer.just_finished() {
         let seq = state.next_ping_seq;
         state.next_ping_seq = state.next_ping_seq.wrapping_add(1);
+        let now_secs = time.elapsed_secs_f64();
+        state.pending_pings_secs.insert(seq, now_secs);
+        state
+            .pending_pings_secs
+            .retain(|_, sent_at| now_secs - *sent_at <= PING_TIMEOUT_SECS);
+        state.pings_sent = state.pings_sent.wrapping_add(1);
         send_client_packet(
             &state.socket,
             state.server_addr,
             &ClientPacket::Ping { seq },
         );
+        if let Some(telemetry) = telemetry.as_deref_mut() {
+            telemetry.packet_loss_pct =
+                compute_packet_loss_pct(state.pings_sent, state.pongs_received);
+        }
     }
 
     let Some(intent) = read_single_local_intent(&local_player_intent_q) else {
@@ -113,13 +131,16 @@ pub(super) fn client_send_packets(
 
 pub(super) fn client_receive_packets(
     state: Option<ResMut<ClientNetState>>,
+    telemetry: Option<ResMut<ClientNetworkTelemetry>>,
     snapshot_state: Option<ResMut<ClientSnapshotState>>,
     impact_sync_state: Option<ResMut<ClientImpactSyncState>>,
+    time: Res<Time>,
     mut lifecycle: MessageWriter<NetLifecycleMessage>,
 ) {
     let Some(mut state) = state else {
         return;
     };
+    let mut telemetry = telemetry;
     let mut snapshot_state = snapshot_state;
     let mut impact_sync_state = impact_sync_state;
 
@@ -153,6 +174,13 @@ pub(super) fn client_receive_packets(
                 session_id,
             } => {
                 if protocol_version != PROTOCOL_VERSION {
+                    if let Some(telemetry) = telemetry.as_deref_mut() {
+                        telemetry.connected = false;
+                        telemetry.status = format!(
+                            "net: protocol mismatch (srv={} cli={})",
+                            protocol_version, PROTOCOL_VERSION
+                        );
+                    }
                     lifecycle.write(NetLifecycleMessage::ClientDisconnected {
                         reason: format!(
                             "protocol mismatch: server={} client={}",
@@ -164,17 +192,34 @@ pub(super) fn client_receive_packets(
                 if !state.connected || state.session_id != Some(session_id) {
                     state.connected = true;
                     state.session_id = Some(session_id);
+                    if let Some(telemetry) = telemetry.as_deref_mut() {
+                        telemetry.connected = true;
+                        telemetry.status = format!("net: connected (session {})", session_id);
+                    }
                     lifecycle.write(NetLifecycleMessage::ClientConnected {
                         session_id,
                         server_addr: state.server_addr,
                     });
                 }
             }
-            ServerPacket::Pong {
-                seq: _,
-                server_tick: _,
-            } => {}
+            ServerPacket::Pong { seq, server_tick } => {
+                let now_secs = time.elapsed_secs_f64();
+                let ping_ms = state
+                    .pending_pings_secs
+                    .remove(&seq)
+                    .map(|sent_secs| ((now_secs - sent_secs).max(0.0) * 1000.0) as f32);
+                state.pongs_received = state.pongs_received.wrapping_add(1);
+                if let Some(telemetry) = telemetry.as_deref_mut() {
+                    telemetry.connected = state.connected;
+                    telemetry.ping_ms = ping_ms.or(telemetry.ping_ms);
+                    telemetry.server_tick = Some(server_tick);
+                    telemetry.packet_loss_pct =
+                        compute_packet_loss_pct(state.pings_sent, state.pongs_received);
+                    telemetry.status = "net: connected".to_owned();
+                }
+            }
             ServerPacket::Disconnect { reason } => {
+                let reason_text = reason.clone();
                 if state.connected {
                     lifecycle.write(NetLifecycleMessage::ClientDisconnected { reason });
                 }
@@ -182,6 +227,9 @@ pub(super) fn client_receive_packets(
                 state.session_id = None;
                 state.next_input_seq = 1;
                 state.last_sent_intent = None;
+                state.pending_pings_secs.clear();
+                state.pings_sent = 0;
+                state.pongs_received = 0;
                 if let Some(snapshot_state) = snapshot_state.as_deref_mut() {
                     snapshot_state.latest = Some(Snapshot {
                         tick: 0,
@@ -193,6 +241,13 @@ pub(super) fn client_receive_packets(
                 if let Some(impact_sync_state) = impact_sync_state.as_deref_mut() {
                     impact_sync_state.seen_seqs.clear();
                     impact_sync_state.seq_order.clear();
+                }
+                if let Some(telemetry) = telemetry.as_deref_mut() {
+                    telemetry.connected = false;
+                    telemetry.ping_ms = None;
+                    telemetry.server_tick = None;
+                    telemetry.packet_loss_pct = None;
+                    telemetry.status = format!("net: disconnected ({})", reason_text);
                 }
             }
             ServerPacket::Snapshot(snapshot) => {
@@ -655,6 +710,16 @@ fn register_client_impact_seq(state: &mut ClientImpactSyncState, seq: u32) -> bo
 
 fn is_snapshot_tick_newer(new_tick: u32, current_tick: u32) -> bool {
     new_tick != current_tick && (new_tick.wrapping_sub(current_tick) as i32) > 0
+}
+
+fn compute_packet_loss_pct(pings_sent: u32, pongs_received: u32) -> Option<f32> {
+    if pings_sent == 0 {
+        return None;
+    }
+    let delivered = pongs_received.min(pings_sent) as f32;
+    let sent = pings_sent as f32;
+    let loss = (1.0 - delivered / sent).clamp(0.0, 1.0) * 100.0;
+    Some(loss)
 }
 
 fn resolve_obstacle_target_for_impact(

@@ -8,6 +8,7 @@ use crate::{
         combat::{Health, Team},
         destructible_mesh::DestructibleMesh,
         destructible_surface::DestructibleSurface,
+        ground_surface::{GroundSurfaceKind, GroundSurfaceTag},
         obstacle::Obstacle,
     },
     plugins::polygon::{config::PolygonConfig, layout::SectionBounds},
@@ -34,6 +35,7 @@ pub fn spawn_platform(
         Collider::cuboid(0.5 * size.x, 0.5 * size.y, 0.5 * size.z),
         CollisionGroups::new(GROUP_WORLD, Group::ALL),
         Friction::coefficient(0.0),
+        GroundSurfaceTag::new(GroundSurfaceKind::Asphalt),
     ));
 }
 
@@ -58,6 +60,7 @@ pub fn spawn_static_block(
         RigidBody::Fixed,
         Collider::cuboid(size.x * 0.5, size.y * 0.5, size.z * 0.5),
         CollisionGroups::new(GROUP_WORLD, Group::ALL),
+        GroundSurfaceTag::new(GroundSurfaceKind::Rock),
     ));
 
     if mark_obstacle {

@@ -45,6 +45,9 @@ pub(super) struct ClientNetState {
     pub(super) hello_timer: Timer,
     pub(super) ping_timer: Timer,
     pub(super) input_timer: Timer,
+    pub(super) pending_pings_secs: HashMap<u32, f64>,
+    pub(super) pings_sent: u32,
+    pub(super) pongs_received: u32,
 }
 
 #[derive(Resource, Debug, Clone, Copy)]
@@ -87,6 +90,27 @@ pub(super) struct SnapshotReplicaEntities {
 }
 
 pub(super) const CLIENT_IMPACT_SEQ_WINDOW: usize = 4096;
+
+#[derive(Resource, Clone, Debug)]
+pub struct ClientNetworkTelemetry {
+    pub connected: bool,
+    pub ping_ms: Option<f32>,
+    pub server_tick: Option<u32>,
+    pub packet_loss_pct: Option<f32>,
+    pub status: String,
+}
+
+impl Default for ClientNetworkTelemetry {
+    fn default() -> Self {
+        Self {
+            connected: false,
+            ping_ms: None,
+            server_tick: None,
+            packet_loss_pct: None,
+            status: "net: no data".to_owned(),
+        }
+    }
+}
 
 #[derive(Message, Debug, Clone)]
 pub enum NetLifecycleMessage {

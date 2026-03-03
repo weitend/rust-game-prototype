@@ -5,9 +5,11 @@ use bevy_rapier3d::plugin::RapierPhysicsPlugin;
 use plugins::multiplayer::MultiplayerPlugin;
 use plugins::polygon::PolygonPlugin;
 use plugins::runtime::{PresentationPlugin, SimulationPlugin};
+use ui::UiPlugin;
 
 use crate::resources::{
-    aim_settings::AimSettings, combat_rules::CombatRules, local_player::LocalPlayerContext,
+    aim_settings::AimSettings, combat_rules::CombatRules,
+    ground_surface_catalog::GroundSurfaceCatalog, local_player::LocalPlayerContext,
     player_physics_settings::PlayerPhysicsSettings, run_mode::AppRunMode,
     tank_settings::TankSettings,
 };
@@ -17,6 +19,7 @@ pub mod network;
 pub mod plugins;
 pub mod resources;
 pub mod systems;
+pub mod ui;
 pub mod utils;
 
 pub use resources::run_mode::RunMode;
@@ -29,6 +32,7 @@ pub fn run_app(run_mode: RunMode) {
         .insert_resource(AimSettings::default())
         .insert_resource(LocalPlayerContext::default())
         .insert_resource(PlayerPhysicsSettings::default())
+        .insert_resource(GroundSurfaceCatalog::default())
         .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default());
 
@@ -50,6 +54,7 @@ pub fn run_app(run_mode: RunMode) {
     app.add_plugins(PolygonPlugin::Hills);
     if matches!(run_mode, RunMode::Client | RunMode::Host) {
         app.add_plugins(PresentationPlugin);
+        app.add_plugins(UiPlugin);
     }
 
     app.run();

@@ -5,6 +5,7 @@ use crate::components::{
     player::{LocalPlayer, Player},
 };
 use crate::resources::local_player::LocalPlayerContext;
+use crate::ui::state::UiScreen;
 use crate::utils::local_player::resolve_local_player_entity;
 
 pub fn resolve_local_player_context_system(
@@ -22,6 +23,7 @@ pub fn player_input_intent_system(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut mouse_motion: MessageReader<MouseMotion>,
+    ui_screen: Res<State<UiScreen>>,
     local_player_ctx: Res<LocalPlayerContext>,
     local_player_q: Query<Entity, (With<Player>, With<LocalPlayer>)>,
     mut player_q: Query<&mut PlayerIntent, With<Player>>,
@@ -38,6 +40,17 @@ pub fn player_input_intent_system(
     let Ok(mut intent) = player_q.get_mut(player_entity) else {
         return;
     };
+
+    if !matches!(ui_screen.get(), UiScreen::Hidden) {
+        intent.throttle = 0.0;
+        intent.turn = 0.0;
+        intent.turret_yaw_delta = 0.0;
+        intent.barrel_pitch_delta = 0.0;
+        intent.fire_pressed = false;
+        intent.fire_just_pressed = false;
+        intent.artillery_active = false;
+        return;
+    }
 
     intent.throttle = axis_pressed(&keyboard, KeyCode::KeyW, KeyCode::KeyS).clamp(-1.0, 1.0);
     intent.turn = axis_pressed(&keyboard, KeyCode::KeyA, KeyCode::KeyD).clamp(-1.0, 1.0);

@@ -8,7 +8,10 @@ use bevy::{
 };
 use bevy_rapier3d::prelude::{Collider, CollisionGroups, Friction, Group, RigidBody};
 
-use crate::components::obstacle::{Obstacle, ObstacleNetId};
+use crate::components::{
+    ground_surface::{GroundSurfaceKind, GroundSurfaceTag},
+    obstacle::{Obstacle, ObstacleNetId},
+};
 use crate::utils::collision_groups::GROUP_WORLD;
 
 use super::{
@@ -193,6 +196,7 @@ fn setup_hills_demo_system(
 ) {
     spawn_polygon_lighting(commands, config);
     spawn_hills_terrain(commands, images, meshes, materials, config);
+    spawn_hills_surface_zones(commands, meshes, materials, config);
     spawn_hills_landmarks(commands, meshes, materials, config);
 }
 
@@ -277,6 +281,7 @@ fn spawn_hills_terrain(
         terrain_collider,
         CollisionGroups::new(GROUP_WORLD, Group::ALL),
         Friction::coefficient(1.0),
+        GroundSurfaceTag::new(GroundSurfaceKind::Grass),
     ));
 }
 
@@ -350,6 +355,70 @@ fn spawn_hills_landmarks(
         Vec3::new(wall_thickness, wall_height, span + 10.0),
         false,
     );
+}
+
+fn spawn_hills_surface_zones(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    config: &PolygonConfig,
+) {
+    let zone_size = Vec3::new(5.2, 0.35, 8.0);
+    let zone_z = 12.0;
+    let zone_top_offset = 0.10;
+    let zone_mesh = meshes.add(Cuboid::new(zone_size.x, zone_size.y, zone_size.z));
+
+    let zone_specs = [
+        (
+            -12.0_f32,
+            GroundSurfaceKind::Default,
+            Color::srgb_u8(196, 196, 196),
+            "SurfaceZone::Default",
+        ),
+        (
+            -6.0,
+            GroundSurfaceKind::Grass,
+            Color::srgb_u8(96, 168, 102),
+            "SurfaceZone::Grass",
+        ),
+        (
+            0.0,
+            GroundSurfaceKind::Mud,
+            Color::srgb_u8(145, 102, 72),
+            "SurfaceZone::Mud",
+        ),
+        (
+            6.0,
+            GroundSurfaceKind::Rock,
+            Color::srgb_u8(132, 136, 146),
+            "SurfaceZone::Rock",
+        ),
+        (
+            12.0,
+            GroundSurfaceKind::Asphalt,
+            Color::srgb_u8(62, 66, 74),
+            "SurfaceZone::Asphalt",
+        ),
+    ];
+
+    for (zone_x, kind, color, label) in zone_specs {
+        let terrain_y = sample_hills_height(zone_x, zone_z, config);
+        let center_y = terrain_y + zone_top_offset - zone_size.y * 0.5;
+        commands.spawn((
+            Name::new(label),
+            Mesh3d(zone_mesh.clone()),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: color,
+                perceptual_roughness: 0.92,
+                ..default()
+            })),
+            Transform::from_xyz(zone_x, center_y, zone_z),
+            RigidBody::Fixed,
+            Collider::cuboid(zone_size.x * 0.5, zone_size.y * 0.5, zone_size.z * 0.5),
+            CollisionGroups::new(GROUP_WORLD, Group::ALL),
+            GroundSurfaceTag::new(kind),
+        ));
+    }
 }
 
 fn sample_hills_height(x: f32, z: f32, config: &PolygonConfig) -> f32 {

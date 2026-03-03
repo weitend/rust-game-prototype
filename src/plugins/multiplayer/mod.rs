@@ -24,7 +24,7 @@ use server::{
 };
 use setup::{setup_client_network, setup_server_network};
 
-pub use state::NetLifecycleMessage;
+pub use state::{ClientNetworkTelemetry, NetLifecycleMessage};
 
 pub struct MultiplayerPlugin;
 

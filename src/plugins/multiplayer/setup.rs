@@ -11,8 +11,8 @@ use super::{
     config::NetConfig,
     io::now_millis,
     state::{
-        ClientImpactSyncState, ClientNetState, ClientSnapshotState, HostLoopbackNonce,
-        ServerNetState,
+        ClientImpactSyncState, ClientNetState, ClientNetworkTelemetry, ClientSnapshotState,
+        HostLoopbackNonce, ServerNetState,
     },
 };
 
@@ -106,10 +106,14 @@ pub(super) fn setup_client_network(
         hello_timer,
         ping_timer,
         input_timer,
+        pending_pings_secs: HashMap::new(),
+        pings_sent: 0,
+        pongs_received: 0,
     });
     if matches!(run_mode.0, RunMode::Host) {
         commands.insert_resource(HostLoopbackNonce(nonce));
     }
     commands.insert_resource(ClientSnapshotState::default());
     commands.insert_resource(ClientImpactSyncState::default());
+    commands.insert_resource(ClientNetworkTelemetry::default());
 }

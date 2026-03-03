@@ -5,11 +5,15 @@ use bevy_rapier3d::prelude::{ExternalForce, QueryFilter, ReadRapierContext, Velo
 
 use crate::{
     components::{
+        ground_surface::GroundSurfaceTag,
         intent::PlayerIntent,
         player::{Player, PlayerControllerState},
         tank::{GroundContact, TankHull, TankSuspension, TrackSide},
     },
-    resources::player_physics_settings::PlayerPhysicsSettings,
+    resources::{
+        ground_surface_catalog::{GroundSurfaceCatalog, GroundSurfaceParams},
+        player_physics_settings::PlayerPhysicsSettings,
+    },
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -17,6 +21,7 @@ struct SuspensionContactSample {
     side: TrackSide,
     world_point: Vec3,
     normal_load: f32,
+    surface_params: GroundSurfaceParams,
     forward_tangent: Vec3,
     lateral_tangent: Vec3,
     forward_speed: f32,
@@ -118,6 +123,8 @@ pub fn tank_hull_move_system(
     rapier_context: ReadRapierContext,
     time: Res<Time>,
     physics_settings: Res<PlayerPhysicsSettings>,
+    ground_surface_catalog: Res<GroundSurfaceCatalog>,
+    surface_tag_q: Query<&GroundSurfaceTag>,
     mut player_q: Query<
         (
             Entity,
@@ -150,6 +157,7 @@ pub fn tank_hull_move_system(
     {
         let throttle_axis = intent.throttle.clamp(-1.0, 1.0);
         let turn_axis = intent.turn.clamp(-1.0, 1.0);
+        let driver_throttle = throttle_axis.abs().clamp(0.0, 1.0);
 
         let hull_up = (player_tf.rotation * Vec3::Y).normalize_or_zero();
         let hull_forward = (player_tf.rotation * -Vec3::Z).normalize_or_zero();
@@ -159,6 +167,16 @@ pub fn tank_hull_move_system(
         let spring_axis = -hull_up;
         let rest_length = physics_settings.suspension_rest_length_m.max(0.01);
         let max_suspension_length = rest_length + physics_settings.suspension_travel_m.max(0.0);
+        let fallback_surface_params = GroundSurfaceParams {
+            friction_coefficient: physics_settings.track_friction_coefficient.max(0.0),
+            rolling_resistance_coefficient: physics_settings
+                .rolling_resistance_coefficient
+                .max(0.0),
+            longitudinal_stiffness_per_slip: physics_settings
+                .track_longitudinal_stiffness_per_slip
+                .max(0.0),
+            lateral_stiffness_per_rad: physics_settings.track_lateral_stiffness_per_rad.max(0.0),
+        };
 
         let mut total_force = Vec3::ZERO;
         let mut total_torque = Vec3::ZERO;
@@ -168,7 +186,7 @@ pub fn tank_hull_move_system(
 
         for point in &suspension.points {
             let mount_world = player_tf.translation + player_tf.rotation * point.local_anchor;
-            let Some((_, hit)) = rapier_context.cast_ray_and_get_normal(
+            let Some((hit_entity, hit)) = rapier_context.cast_ray_and_get_normal(
                 mount_world,
                 spring_axis,
                 max_suspension_length,
@@ -224,10 +242,15 @@ pub fn tank_hull_move_system(
             }
 
             let contact_velocity = point_velocity_at(velocity, world_com, contact_world);
+            let surface_params = surface_tag_q
+                .get(hit_entity)
+                .map(|tag| ground_surface_catalog.params_for(tag.kind))
+                .unwrap_or(fallback_surface_params);
             contacts.push(SuspensionContactSample {
                 side: point.side,
                 world_point: contact_world,
                 normal_load,
+                surface_params,
                 forward_tangent,
                 lateral_tangent,
                 forward_speed: contact_velocity.dot(forward_tangent),
@@ -252,8 +275,6 @@ pub fn tank_hull_move_system(
 
         let left_command = (throttle_axis - turn_axis).clamp(-1.0, 1.0);
         let right_command = (throttle_axis + turn_axis).clamp(-1.0, 1.0);
-        let command_sum = left_command.abs() + right_command.abs();
-        let throttle_demand = left_command.abs().max(right_command.abs()).clamp(0.0, 1.0);
 
         let mut ground_speed_forward_weighted_sum = 0.0_f32;
         let mut left_contact_load = 0.0_f32;
@@ -281,6 +302,31 @@ pub fn tank_hull_move_system(
                 select_forward_gear_for_traction(ground_speed_abs, &physics_settings);
             ((forward_gear_idx as i8) + 1, ratio)
         };
+        let neutral_steer_active = driver_throttle <= 0.05 && turn_axis.abs() > 0.05;
+        let (
+            left_drive_command,
+            right_drive_command,
+            left_brake_demand,
+            right_brake_demand,
+            throttle_demand,
+        ) = if neutral_steer_active {
+            // Neutral steer: opposite track torques with zero net longitudinal command.
+            (-turn_axis, turn_axis, 0.0, 0.0, turn_axis.abs())
+        } else {
+            let gear_direction = if gear_index < 0 { -1.0 } else { 1.0 };
+            let left_propulsion = (left_command * gear_direction).max(0.0);
+            let right_propulsion = (right_command * gear_direction).max(0.0);
+            let left_brake = (-left_command * gear_direction).max(0.0);
+            let right_brake = (-right_command * gear_direction).max(0.0);
+            (
+                gear_direction * left_propulsion,
+                gear_direction * right_propulsion,
+                left_brake,
+                right_brake,
+                driver_throttle,
+            )
+        };
+
         let driveline_ratio = active_ratio * physics_settings.final_drive_ratio.max(0.01);
         let idle_omega = physics_settings.engine_idle_rpm.max(100.0) * TAU / 60.0;
         let mut engine_omega = if state.engine_rpm > 1.0 {
@@ -315,12 +361,10 @@ pub fn tank_hull_move_system(
         let driveline_torque_budget = clutch_torque.abs()
             * driveline_ratio
             * physics_settings.drivetrain_efficiency.clamp(0.0, 1.0);
-        let (left_drive_torque, right_drive_torque) = if command_sum > f32::EPSILON {
-            let left_share = left_command.abs() / command_sum;
-            let right_share = right_command.abs() / command_sum;
+        let (left_drive_torque, right_drive_torque) = if throttle_demand > f32::EPSILON {
             (
-                driveline_torque_budget * left_share * left_command.signum(),
-                driveline_torque_budget * right_share * right_command.signum(),
+                0.5 * driveline_torque_budget * left_drive_command,
+                0.5 * driveline_torque_budget * right_drive_command,
             )
         } else {
             (0.0, 0.0)
@@ -332,12 +376,6 @@ pub fn tank_hull_move_system(
         let right_omega_eval =
             state.right_track_angular_speed + right_drive_torque / track_inertia * dt;
 
-        let mu = physics_settings.track_friction_coefficient.max(0.0);
-        let rolling_resistance = physics_settings.rolling_resistance_coefficient.max(0.0);
-        let longitudinal_slip_gain = physics_settings
-            .track_longitudinal_stiffness_per_slip
-            .max(0.0);
-        let lateral_slip_gain = physics_settings.track_lateral_stiffness_per_rad.max(0.0);
         let slip_regularization_speed = physics_settings.slip_regularization_speed_mps.max(0.05);
         let sprocket_radius = physics_settings.drive_sprocket_radius_m.max(0.05);
         let mut left_ground_torque = 0.0_f32;
@@ -349,6 +387,16 @@ pub fn tank_hull_move_system(
         let mut contact_count = 0.0_f32;
 
         for contact in contacts {
+            let mu = contact.surface_params.friction_coefficient.max(0.0);
+            let rolling_resistance = contact
+                .surface_params
+                .rolling_resistance_coefficient
+                .max(0.0);
+            let longitudinal_slip_gain = contact
+                .surface_params
+                .longitudinal_stiffness_per_slip
+                .max(0.0);
+            let lateral_slip_gain = contact.surface_params.lateral_stiffness_per_rad.max(0.0);
             let track_omega = match contact.side {
                 TrackSide::Left => left_omega_eval,
                 TrackSide::Right => right_omega_eval,
@@ -405,13 +453,19 @@ pub fn tank_hull_move_system(
         let viscous_drag = physics_settings
             .drivetrain_viscous_drag_nm_per_radps
             .max(0.0);
+        let brake_torque_max = physics_settings.track_brake_torque_max_nm.max(0.0);
         let left_drag_torque = viscous_drag * state.left_track_angular_speed;
         let right_drag_torque = viscous_drag * state.right_track_angular_speed;
+        let left_brake_torque = brake_torque_max * left_brake_demand * left_omega_eval.signum();
+        let right_brake_torque = brake_torque_max * right_brake_demand * right_omega_eval.signum();
         state.left_track_angular_speed +=
-            (left_drive_torque - left_ground_torque - left_drag_torque) / track_inertia * dt;
+            (left_drive_torque - left_ground_torque - left_drag_torque - left_brake_torque)
+                / track_inertia
+                * dt;
         state.right_track_angular_speed +=
-            (right_drive_torque - right_ground_torque - right_drag_torque) / track_inertia * dt;
-
+            (right_drive_torque - right_ground_torque - right_drag_torque - right_brake_torque)
+                / track_inertia
+                * dt;
         external_force.force = total_force;
         external_force.torque = total_torque;
         state.drive_velocity = velocity.linvel.dot(hull_forward);
