@@ -101,48 +101,83 @@ fn engine_rpm_from_ground_speed(
     engine_rpm_from_track_omega(sprocket_omega, gear_ratio, settings)
 }
 
-fn select_forward_gear_for_traction(
+fn engine_raw_rpm_from_ground_speed(
     ground_speed_abs: f32,
+    gear_ratio: f32,
+    settings: &PlayerPhysicsSettings,
+) -> f32 {
+    let sprocket_omega = ground_speed_abs.max(0.0) / settings.drive_sprocket_radius_m.max(0.05);
+    sprocket_omega * gear_ratio.max(0.01) * settings.final_drive_ratio.max(0.01) * (60.0 / TAU)
+}
+
+fn select_forward_gear_for_traction(
+    current_gear: i8,
+    ground_speed_abs: f32,
+    throttle_demand: f32,
     settings: &PlayerPhysicsSettings,
 ) -> (usize, f32, f32) {
     let idle_rpm = settings.engine_idle_rpm.max(100.0);
+    let peak_rpm = settings.engine_peak_torque_rpm.max(idle_rpm + 1.0);
     let redline_rpm = settings.engine_redline_rpm.max(idle_rpm + 1.0);
-    let mut best_idx = None;
-    let mut best_ratio = settings.forward_gear_ratios[0].max(0.01);
-    let mut best_rpm = idle_rpm;
-    let mut best_force = f32::NEG_INFINITY;
+    let gear_count = settings.forward_gear_ratios.len();
+    let mut gear_idx = if current_gear > 0 && (current_gear as usize) <= gear_count {
+        (current_gear as usize) - 1
+    } else {
+        0
+    };
+
     let final_drive = settings.final_drive_ratio.max(0.01);
     let efficiency = settings.drivetrain_efficiency.clamp(0.0, 1.0);
     let sprocket_radius = settings.drive_sprocket_radius_m.max(0.05);
 
-    for (idx, ratio_raw) in settings.forward_gear_ratios.iter().enumerate() {
-        let ratio = ratio_raw.max(0.01);
-        let raw_rpm =
-            ground_speed_abs.max(0.0) / sprocket_radius * ratio * final_drive * (60.0 / TAU);
-        if raw_rpm > redline_rpm {
-            continue;
-        }
+    let mut current_ratio = settings.forward_gear_ratios[gear_idx].max(0.01);
+    let mut current_raw_rpm =
+        engine_raw_rpm_from_ground_speed(ground_speed_abs, current_ratio, settings);
 
-        let rpm = raw_rpm.max(idle_rpm);
-        let torque = engine_torque_at_rpm(rpm, settings);
-        let force = torque * ratio * final_drive * efficiency / sprocket_radius;
-        if force > best_force {
-            best_force = force;
-            best_idx = Some(idx);
-            best_ratio = ratio;
-            best_rpm = rpm;
+    while current_raw_rpm > redline_rpm && gear_idx + 1 < gear_count {
+        gear_idx += 1;
+        current_ratio = settings.forward_gear_ratios[gear_idx].max(0.01);
+        current_raw_rpm =
+            engine_raw_rpm_from_ground_speed(ground_speed_abs, current_ratio, settings);
+    }
+
+    if throttle_demand > 0.05 && current_raw_rpm < peak_rpm {
+        while gear_idx > 0 {
+            let lower_idx = gear_idx - 1;
+            let lower_ratio = settings.forward_gear_ratios[lower_idx].max(0.01);
+            let lower_raw_rpm =
+                engine_raw_rpm_from_ground_speed(ground_speed_abs, lower_ratio, settings);
+            if lower_raw_rpm > redline_rpm {
+                break;
+            }
+
+            let current_force =
+                engine_torque_at_rpm(current_raw_rpm.clamp(idle_rpm, redline_rpm), settings)
+                    * current_ratio
+                    * final_drive
+                    * efficiency
+                    / sprocket_radius;
+            let lower_force =
+                engine_torque_at_rpm(lower_raw_rpm.clamp(idle_rpm, redline_rpm), settings)
+                    * lower_ratio
+                    * final_drive
+                    * efficiency
+                    / sprocket_radius;
+            if lower_force <= current_force {
+                break;
+            }
+
+            gear_idx = lower_idx;
+            current_ratio = lower_ratio;
+            current_raw_rpm = lower_raw_rpm;
         }
     }
 
-    if let Some(idx) = best_idx {
-        return (idx, best_ratio, best_rpm);
-    }
-
-    // If all lower gears are over-redline at current ground speed, choose top gear.
-    let fallback_idx = settings.forward_gear_ratios.len().saturating_sub(1);
-    let fallback_ratio = settings.forward_gear_ratios[fallback_idx].max(0.01);
-    let fallback_rpm = engine_rpm_from_ground_speed(ground_speed_abs, fallback_ratio, settings);
-    (fallback_idx, fallback_ratio, fallback_rpm)
+    (
+        gear_idx,
+        current_ratio,
+        current_raw_rpm.clamp(idle_rpm, redline_rpm),
+    )
 }
 
 pub fn tank_hull_move_system(
@@ -368,19 +403,26 @@ pub fn tank_hull_move_system(
         };
         let ground_speed_abs = ground_speed_forward.abs();
 
-        let mean_track_omega_abs =
-            0.5 * (state.left_track_angular_speed.abs() + state.right_track_angular_speed.abs());
         let (gear_index, active_ratio, selected_gear_rpm) = if throttle_axis < -0.05 {
-            let reverse_ratio = physics_settings.reverse_gear_ratio.abs().max(0.01);
+            let first_forward_ratio = physics_settings.forward_gear_ratios[0].max(0.01);
+            let reverse_ratio = physics_settings
+                .reverse_gear_ratio
+                .abs()
+                .max(first_forward_ratio);
             let reverse_rpm =
                 engine_rpm_from_ground_speed(ground_speed_abs, reverse_ratio, &physics_settings);
             (-1_i8, reverse_ratio, reverse_rpm)
         } else {
-            let (forward_gear_idx, ratio, selected_rpm) =
-                select_forward_gear_for_traction(ground_speed_abs, &physics_settings);
+            let (forward_gear_idx, ratio, selected_rpm) = select_forward_gear_for_traction(
+                state.transmission_gear,
+                ground_speed_abs,
+                driver_throttle,
+                &physics_settings,
+            );
             ((forward_gear_idx as i8) + 1, ratio, selected_rpm)
         };
         let neutral_steer_active = driver_throttle <= 0.05 && turn_axis.abs() > 0.05;
+        let gear_direction = if gear_index < 0 { -1.0 } else { 1.0 };
         let (
             left_drive_command,
             right_drive_command,
@@ -391,16 +433,15 @@ pub fn tank_hull_move_system(
             // Neutral steer: opposite track torques with zero net longitudinal command.
             (-turn_axis, turn_axis, 0.0, 0.0, turn_axis.abs())
         } else {
-            let gear_direction = if gear_index < 0 { -1.0 } else { 1.0 };
+            // In moving mode, do not command opposite-side drive torque against current gear.
+            // Counter-rotation is reserved for neutral steer only.
             let left_propulsion = (left_command * gear_direction).max(0.0);
             let right_propulsion = (right_command * gear_direction).max(0.0);
-            let left_brake = (-left_command * gear_direction).max(0.0);
-            let right_brake = (-right_command * gear_direction).max(0.0);
             (
                 gear_direction * left_propulsion,
                 gear_direction * right_propulsion,
-                left_brake,
-                right_brake,
+                0.0,
+                0.0,
                 driver_throttle,
             )
         };
@@ -418,15 +459,13 @@ pub fn tank_hull_move_system(
             * physics_settings
                 .engine_idle_governor_gain_nm_per_radps
                 .max(0.0);
-        let redline_omega = physics_settings.engine_redline_rpm.max(100.0) * TAU / 60.0;
-        let throttle_torque = if engine_omega >= redline_omega {
-            0.0
-        } else {
-            peak_engine_torque * throttle_demand
-        };
-        let combustion_torque = throttle_torque + governor_torque;
+        let combustion_torque = peak_engine_torque * throttle_demand + governor_torque;
 
-        let transmission_side_omega = mean_track_omega_abs * driveline_ratio.max(0.01);
+        let transmission_track_omega = (0.5
+            * (state.left_track_angular_speed + state.right_track_angular_speed)
+            * gear_direction)
+            .max(0.0);
+        let transmission_side_omega = transmission_track_omega * driveline_ratio.max(0.01);
         let clutch_slip = engine_omega - transmission_side_omega;
         let clutch_torque = (clutch_slip * physics_settings.clutch_coupling_nm_per_radps.max(0.0))
             .clamp(
@@ -442,17 +481,23 @@ pub fn tank_hull_move_system(
         let engine_rpm =
             (engine_omega * 60.0 / TAU).clamp(0.0, physics_settings.engine_redline_rpm);
 
-        let driveline_torque_budget = clutch_torque.abs()
+        let driveline_torque_budget = clutch_torque.max(0.0)
             * driveline_ratio
             * physics_settings.drivetrain_efficiency.clamp(0.0, 1.0);
-        let (left_drive_torque, right_drive_torque) = if throttle_demand > f32::EPSILON {
-            (
-                0.5 * driveline_torque_budget * left_drive_command,
-                0.5 * driveline_torque_budget * right_drive_command,
-            )
-        } else {
-            (0.0, 0.0)
-        };
+        let left_drive_demand = left_drive_command.abs();
+        let right_drive_demand = right_drive_command.abs();
+        let total_drive_demand = left_drive_demand + right_drive_demand;
+        let (left_drive_torque, right_drive_torque) =
+            if throttle_demand > f32::EPSILON && total_drive_demand > f32::EPSILON {
+                let left_share = left_drive_demand / total_drive_demand;
+                let right_share = right_drive_demand / total_drive_demand;
+                (
+                    driveline_torque_budget * left_share * left_drive_command.signum(),
+                    driveline_torque_budget * right_share * right_drive_command.signum(),
+                )
+            } else {
+                (0.0, 0.0)
+            };
 
         let track_inertia = physics_settings.track_rotational_inertia_kg_m2.max(0.1);
         let left_omega_eval =

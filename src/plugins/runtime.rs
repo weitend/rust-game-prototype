@@ -27,6 +27,7 @@ use crate::{
         },
         tank_aim::{tank_barrel_pitch_system, tank_turret_yaw_system},
         tank_move::tank_hull_move_system,
+        track_visual::{animate_track_visuals_system, integrate_track_visual_phase_fixed_system},
     },
 };
 
@@ -39,7 +40,10 @@ impl Plugin for SimulationPlugin {
             .add_message::<DeathEvent>()
             .add_systems(
                 FixedUpdate,
-                tank_hull_move_system.before(PhysicsSet::StepSimulation),
+                (
+                    tank_hull_move_system.before(PhysicsSet::StepSimulation),
+                    integrate_track_visual_phase_fixed_system.after(tank_hull_move_system),
+                ),
             )
             .add_systems(
                 Update,
@@ -89,7 +93,10 @@ impl Plugin for PresentationPlugin {
             )
             .add_systems(
                 PostUpdate,
-                (camera_move_system.after(PhysicsSet::Writeback),),
+                (
+                    animate_track_visuals_system.after(PhysicsSet::Writeback),
+                    camera_move_system.after(PhysicsSet::Writeback),
+                ),
             );
     }
 }

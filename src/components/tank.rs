@@ -49,6 +49,25 @@ pub struct SuspensionPoint {
     pub side: TrackSide,
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+pub struct TrackWheelVisual {
+    pub side: TrackSide,
+}
+
+#[derive(Component, Clone, Copy, Debug)]
+pub struct TrackLinkVisual {
+    pub side: TrackSide,
+    pub base_phase_m: f32,
+}
+
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct TrackVisualPhase {
+    pub prev_left_m: f32,
+    pub curr_left_m: f32,
+    pub prev_right_m: f32,
+    pub curr_right_m: f32,
+}
+
 #[derive(Component, Clone, Debug)]
 pub struct TankSuspension {
     pub points: Vec<SuspensionPoint>,

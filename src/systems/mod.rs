@@ -12,3 +12,4 @@ pub mod setup;
 pub mod shot_tracer;
 pub mod tank_aim;
 pub mod tank_move;
+pub mod track_visual;

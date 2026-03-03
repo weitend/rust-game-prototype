@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_rapier3d::prelude::*;
 
+use crate::systems::track_visual::{track_link_count, track_loop_length_m, track_pose_from_phase};
 use crate::{
     components::{
         combat::{Health, Team},
@@ -11,7 +12,7 @@ use crate::{
         shoot_origin::ShootOrigin,
         tank::{
             GroundContact, TankBarrel, TankBarrelState, TankHull, TankMuzzle, TankParts,
-            TankTurret, TankTurretState,
+            TankTurret, TankTurretState, TrackLinkVisual, TrackSide, TrackVisualPhase,
         },
         weapon::{HitscanWeapon, ProjectileWeaponProfile},
     },
@@ -47,6 +48,7 @@ pub fn spawn_player_from_template(
         Team::Player,
         Health::new(template.max_health),
         PlayerControllerState::default(),
+        TrackVisualPhase::default(),
         PlayerIntent::default(),
         GroundContact::default(),
     ));
@@ -82,6 +84,73 @@ pub fn spawn_player_from_template(
             angular_damping: physics_settings.angular_damping,
         },
     ));
+
+    let link_count = track_link_count();
+    let loop_length_m = track_loop_length_m();
+    let guide_inset_x = 0.02_f32;
+    for guide_idx in 0..link_count {
+        let phase = (guide_idx as f32 / link_count as f32) * loop_length_m;
+        for side in [TrackSide::Left, TrackSide::Right] {
+            let (mut guide_position, guide_rotation) = track_pose_from_phase(side, phase);
+            guide_position.x += match side {
+                TrackSide::Left => guide_inset_x,
+                TrackSide::Right => -guide_inset_x,
+            };
+            let name = match side {
+                TrackSide::Left => "TankTrack::LeftGuide",
+                TrackSide::Right => "TankTrack::RightGuide",
+            };
+            let guide = commands
+                .spawn((
+                    Name::new(name),
+                    Mesh3d(template.track_belt_mesh.clone()),
+                    MeshMaterial3d(template.track_belt_material.clone()),
+                    Transform::from_translation(guide_position).with_rotation(guide_rotation),
+                ))
+                .id();
+            commands.entity(player_entity_id).add_child(guide);
+        }
+    }
+
+    for link_idx in 0..link_count {
+        let phase = (link_idx as f32 / link_count as f32) * loop_length_m;
+        let (left_position, left_rotation) = track_pose_from_phase(TrackSide::Left, phase);
+        let left_link = commands
+            .spawn((
+                Name::new("TankTrack::LeftLink"),
+                Mesh3d(template.track_link_mesh.clone()),
+                MeshMaterial3d(template.track_link_material.clone()),
+                Transform::from_translation(left_position).with_rotation(left_rotation),
+                OwnedBy {
+                    entity: player_entity_id,
+                },
+                TrackLinkVisual {
+                    side: TrackSide::Left,
+                    base_phase_m: phase,
+                },
+            ))
+            .id();
+
+        let (right_position, right_rotation) = track_pose_from_phase(TrackSide::Right, phase);
+        let right_link = commands
+            .spawn((
+                Name::new("TankTrack::RightLink"),
+                Mesh3d(template.track_link_mesh.clone()),
+                MeshMaterial3d(template.track_link_material.clone()),
+                Transform::from_translation(right_position).with_rotation(right_rotation),
+                OwnedBy {
+                    entity: player_entity_id,
+                },
+                TrackLinkVisual {
+                    side: TrackSide::Right,
+                    base_phase_m: phase,
+                },
+            ))
+            .id();
+
+        commands.entity(player_entity_id).add_child(left_link);
+        commands.entity(player_entity_id).add_child(right_link);
+    }
 
     let turret_entity = commands
         .spawn((

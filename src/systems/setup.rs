@@ -25,6 +25,9 @@ pub fn setup(
 ) {
     // Player
     let player_hull_mesh = meshes.add(Cuboid::new(1.6, 0.74, 2.2));
+    let player_track_belt_mesh = meshes.add(Cuboid::new(0.18, 0.025, 0.075));
+    let player_track_wheel_mesh = meshes.add(Cylinder::new(0.20, 0.12));
+    let player_track_link_mesh = meshes.add(Cuboid::new(0.20, 0.04, 0.08));
     let player_turret_mesh = meshes.add(Cuboid::new(1.05, 0.34, 1.05));
     let player_barrel_mesh = meshes.add(Cuboid::new(0.18, 0.18, 1.26));
     let player_muzzle_offset = Vec3::new(0.0, 0.55, -1.70);
@@ -32,6 +35,12 @@ pub fn setup(
     let player_template = PlayerTemplate {
         mesh: player_hull_mesh,
         material: materials.add(Color::srgb_u8(10, 144, 255)),
+        track_belt_mesh: player_track_belt_mesh,
+        track_belt_material: materials.add(Color::srgb_u8(66, 74, 86)),
+        track_wheel_mesh: player_track_wheel_mesh,
+        track_wheel_material: materials.add(Color::srgb_u8(92, 102, 118)),
+        track_link_mesh: player_track_link_mesh,
+        track_link_material: materials.add(Color::srgb_u8(54, 60, 70)),
         turret_mesh: player_turret_mesh,
         turret_material: materials.add(Color::srgb_u8(20, 167, 255)),
         barrel_mesh: player_barrel_mesh,

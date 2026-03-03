@@ -4,6 +4,12 @@ use bevy::prelude::*;
 pub struct PlayerTemplate {
     pub mesh: Handle<Mesh>,
     pub material: Handle<StandardMaterial>,
+    pub track_belt_mesh: Handle<Mesh>,
+    pub track_belt_material: Handle<StandardMaterial>,
+    pub track_wheel_mesh: Handle<Mesh>,
+    pub track_wheel_material: Handle<StandardMaterial>,
+    pub track_link_mesh: Handle<Mesh>,
+    pub track_link_material: Handle<StandardMaterial>,
     pub turret_mesh: Handle<Mesh>,
     pub turret_material: Handle<StandardMaterial>,
     pub barrel_mesh: Handle<Mesh>,
