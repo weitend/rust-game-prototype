@@ -1,6 +1,6 @@
 use bevy::{
     asset::RenderAssetUsages,
-    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
+    image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor},
     math::Affine2,
     mesh::Indices,
     prelude::*,
@@ -12,6 +12,7 @@ use crate::components::{
     ground_surface::{GroundSurfaceKind, GroundSurfaceTag},
     obstacle::{Obstacle, ObstacleNetId},
 };
+use crate::resources::ground_surface_visual_catalog::GroundSurfaceVisualCatalog;
 use crate::utils::collision_groups::GROUP_WORLD;
 
 use super::{
@@ -40,6 +41,7 @@ pub fn setup_polygon_system(
     asset_server: Option<Res<AssetServer>>,
     fonts: Option<Res<Assets<Font>>>,
     config: Res<PolygonConfig>,
+    ground_visual_catalog: Res<GroundSurfaceVisualCatalog>,
 ) {
     let config = config.sanitized();
     if matches!(config.map_mode, PolygonMapMode::HillsDemo) {
@@ -48,6 +50,8 @@ pub fn setup_polygon_system(
             &mut images,
             &mut meshes,
             &mut materials,
+            asset_server.as_deref(),
+            &ground_visual_catalog,
             &config,
         );
         return;
@@ -192,10 +196,20 @@ fn setup_hills_demo_system(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    asset_server: Option<&AssetServer>,
+    ground_visual_catalog: &GroundSurfaceVisualCatalog,
     config: &PolygonConfig,
 ) {
     spawn_polygon_lighting(commands, config);
-    spawn_hills_terrain(commands, images, meshes, materials, config);
+    spawn_hills_terrain(
+        commands,
+        images,
+        meshes,
+        materials,
+        asset_server,
+        ground_visual_catalog,
+        config,
+    );
     spawn_hills_surface_zones(commands, meshes, materials, config);
     spawn_hills_landmarks(commands, meshes, materials, config);
 }
@@ -205,6 +219,8 @@ fn spawn_hills_terrain(
     images: &mut Assets<Image>,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    asset_server: Option<&AssetServer>,
+    ground_visual_catalog: &GroundSurfaceVisualCatalog,
     config: &PolygonConfig,
 ) {
     let resolution = config.hills_resolution;
@@ -229,7 +245,7 @@ fn spawn_hills_terrain(
 
             positions.push([x, y, z]);
             normals.push([0.0, 1.0, 0.0]);
-            uvs.push([u * 8.0, v * 8.0]);
+            uvs.push([u, v]);
         }
     }
 
@@ -262,7 +278,8 @@ fn spawn_hills_terrain(
     terrain_mesh.compute_smooth_normals();
 
     let terrain_mesh_handle = meshes.add(terrain_mesh);
-    let terrain_material = create_checker_hills_material(images, materials);
+    let terrain_material =
+        create_hills_terrain_material(images, materials, asset_server, ground_visual_catalog);
 
     let terrain_collider = match Collider::trimesh(collider_vertices, collider_indices) {
         Ok(collider) => collider,
@@ -283,6 +300,62 @@ fn spawn_hills_terrain(
         Friction::coefficient(1.0),
         GroundSurfaceTag::new(GroundSurfaceKind::Grass),
     ));
+}
+
+fn create_hills_terrain_material(
+    images: &mut Assets<Image>,
+    materials: &mut Assets<StandardMaterial>,
+    asset_server: Option<&AssetServer>,
+    ground_visual_catalog: &GroundSurfaceVisualCatalog,
+) -> Handle<StandardMaterial> {
+    let Some(asset_server) = asset_server else {
+        return create_checker_hills_material(images, materials);
+    };
+
+    let Some(texture_set) = ground_visual_catalog.terrain_texture_set_for(GroundSurfaceKind::Grass)
+    else {
+        return create_checker_hills_material(images, materials);
+    };
+
+    materials.add(StandardMaterial {
+        base_color_texture: Some(load_tiled_texture(
+            asset_server,
+            texture_set.base_color_path,
+            true,
+        )),
+        normal_map_texture: texture_set
+            .normal_map_path
+            .map(|path| load_tiled_texture(asset_server, path, false)),
+        metallic_roughness_texture: texture_set
+            .metallic_roughness_map_path
+            .map(|path| load_tiled_texture(asset_server, path, false)),
+        occlusion_texture: texture_set
+            .occlusion_map_path
+            .map(|path| load_tiled_texture(asset_server, path, false)),
+        uv_transform: Affine2::from_scale(texture_set.uv_tiling),
+        perceptual_roughness: texture_set.perceptual_roughness,
+        ..default()
+    })
+}
+
+fn load_tiled_texture(
+    asset_server: &AssetServer,
+    path: &'static str,
+    is_srgb: bool,
+) -> Handle<Image> {
+    let sampler = repeating_linear_sampler();
+    asset_server.load_with_settings(path, move |settings: &mut ImageLoaderSettings| {
+        settings.is_srgb = is_srgb;
+        settings.sampler = sampler.clone();
+    })
+}
+
+fn repeating_linear_sampler() -> ImageSampler {
+    ImageSampler::Descriptor(ImageSamplerDescriptor {
+        address_mode_u: ImageAddressMode::Repeat,
+        address_mode_v: ImageAddressMode::Repeat,
+        ..ImageSamplerDescriptor::linear()
+    })
 }
 
 fn spawn_hills_landmarks(

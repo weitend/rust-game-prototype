@@ -5,6 +5,6 @@ edition = "2024"
 
 [dependencies]
 bincode = "1"
-bevy = "0.17.3"
+bevy = { version = "0.17.3", features = ["jpeg"] }
 bevy_rapier3d = "0.32.0"
 serde = { version = "1", features = ["derive"] }

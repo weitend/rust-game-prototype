@@ -1,3 +1,4 @@
+use bevy::asset::AssetPlugin;
 use bevy::prelude::*;
 use bevy::transform::TransformPlugin;
 use bevy_rapier3d::plugin::NoUserData;
@@ -9,7 +10,9 @@ use ui::UiPlugin;
 
 use crate::resources::{
     aim_settings::AimSettings, combat_rules::CombatRules,
-    ground_surface_catalog::GroundSurfaceCatalog, local_player::LocalPlayerContext,
+    ground_surface_catalog::GroundSurfaceCatalog,
+    ground_surface_visual_catalog::{GroundSurfaceVisualCatalog, GroundVisualSeason},
+    local_player::LocalPlayerContext,
     player_physics_settings::PlayerPhysicsSettings, run_mode::AppRunMode,
     tank_settings::TankSettings,
 };
@@ -33,6 +36,9 @@ pub fn run_app(run_mode: RunMode) {
         .insert_resource(LocalPlayerContext::default())
         .insert_resource(PlayerPhysicsSettings::default())
         .insert_resource(GroundSurfaceCatalog::default())
+        .insert_resource(GroundSurfaceVisualCatalog::with_season(
+            GroundVisualSeason::Temperate,
+        ))
         .insert_resource(TankSettings::default())
         .insert_resource(CombatRules::default());
 
@@ -40,6 +46,7 @@ pub fn run_app(run_mode: RunMode) {
         RunMode::Server => {
             app.add_plugins((
                 MinimalPlugins,
+                AssetPlugin::default(),
                 TransformPlugin,
                 RapierPhysicsPlugin::<NoUserData>::default(),
             ));

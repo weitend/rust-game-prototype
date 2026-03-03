@@ -4,7 +4,9 @@ mod sections;
 mod systems;
 mod teleports;
 
-use bevy::{image::Image, mesh::Mesh, pbr::StandardMaterial, prelude::*};
+use bevy::{
+    asset::AssetApp, image::Image, mesh::Mesh, pbr::StandardMaterial, prelude::*,
+};
 use bevy_rapier3d::plugin::PhysicsSet;
 
 use crate::resources::run_mode::{AppRunMode, RunMode};
@@ -37,10 +39,17 @@ impl Plugin for PolygonPlugin {
             .unwrap_or_default();
         config.map_mode = map_mode;
 
+        if !app.world().contains_resource::<Assets<Image>>() {
+            app.init_asset::<Image>();
+        }
+        if !app.world().contains_resource::<Assets<Mesh>>() {
+            app.init_asset::<Mesh>();
+        }
+        if !app.world().contains_resource::<Assets<StandardMaterial>>() {
+            app.init_asset::<StandardMaterial>();
+        }
+
         app.insert_resource(config)
-            .init_resource::<Assets<Image>>()
-            .init_resource::<Assets<Mesh>>()
-            .init_resource::<Assets<StandardMaterial>>()
             .init_resource::<TeleportRuntime>()
             .add_systems(Startup, setup_polygon_system)
             .add_systems(
